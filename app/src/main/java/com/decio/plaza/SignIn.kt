@@ -1,6 +1,19 @@
 package com.decio.plaza
 
+import android.accounts.AccountManager
+import android.accounts.AccountManagerCallback
 import android.annotation.SuppressLint
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.os.Bundle
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalContext
+import java.net.URLEncoder
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import android.webkit.CookieManager
 import android.webkit.WebSettings
 import android.webkit.WebView
@@ -53,6 +66,43 @@ private const val SIGN_IN_URL =
     "https://accounts.google.com/ServiceLogin?service=youtube&uilel=3&passive=true&hl=en" +
         "&continue=https%3A%2F%2Fwww.youtube.com%2Fsignin%3Faction_handle_signin%3Dtrue%26app%3Dm%26hl%3Den%26next%3D%252F"
 
+
+private const val WEBLOGIN_CONTINUE = "https://www.youtube.com/signin?action_handle_signin=true&app=m&hl=en&next=%2F"
+
+private fun enc(s: String): String = URLEncoder.encode(s, "UTF-8")
+
+private fun Context.findActivity(): Activity? {
+    var c: Context = this
+    while (c is ContextWrapper) {
+        if (c is Activity) return c
+        c = c.baseContext
+    }
+    return null
+}
+
+/**
+ * Masuk tanpa mengetik email & kata sandi: akun Google yang sudah ada di HP dipilih lewat
+ * pemilih akun Android, lalu Android memberi token "weblogin" yang membuka sesi YouTube di
+ * WebView. Mengembalikan null kalau HP/akun menolak; layar masuk lalu memakai halaman Google
+ * biasa dengan email yang sudah terisi.
+ */
+private suspend fun webLoginUrl(activity: Activity, account: android.accounts.Account): String? =
+    suspendCancellableCoroutine<String?> { cont ->
+        val type = "weblogin:service=youtube&continue=" + enc(WEBLOGIN_CONTINUE)
+        val callback = AccountManagerCallback<Bundle> { future ->
+            val token = runCatching { future.result.getString(AccountManager.KEY_AUTHTOKEN) }.getOrNull()
+            val url = when {
+                token.isNullOrBlank() -> null
+                token.startsWith("http") -> token
+                else -> "https://accounts.google.com/MergeSession?service=youtube" +
+                    "&continue=" + enc(WEBLOGIN_CONTINUE) + "&uberauth=" + enc(token) + "&source=AndroidWebLogin"
+            }
+            if (cont.isActive) cont.resume(url)
+        }
+        runCatching { AccountManager.get(activity).getAuthToken(account, type, null, activity, callback, null) }
+            .onFailure { if (cont.isActive) cont.resume(null) }
+    }
+
 /**
  * Google's own sign-in page. Plaza never sees the password; once the page lands back on
  * YouTube signed in, the youtube.com cookies are taken over (encrypted) and the WebView's
@@ -65,6 +115,25 @@ fun SignInScreen(onDone: () -> Unit, onCancel: () -> Unit) {
     val scope = rememberCoroutineScope()
     var finishing by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var startUrl by remember { mutableStateOf<String?>(null) }
+    val context = LocalContext.current
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
+        val name = r.data?.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
+        val type = r.data?.getStringExtra(AccountManager.KEY_ACCOUNT_TYPE)
+        if (r.resultCode == Activity.RESULT_OK && name != null && type != null) {
+            scope.launch {
+                val activity = context.findActivity()
+                val url = if (activity != null) webLoginUrl(activity, android.accounts.Account(name, type)) else null
+                startUrl = url ?: (SIGN_IN_URL + "&Email=" + enc(name))
+            }
+        } else {
+            onCancel()
+        }
+    }
+    // Langsung tampilkan pemilih akun Google di HP (tanpa ketik email/kata sandi).
+    LaunchedEffect(Unit) {
+        picker.launch(AccountManager.newChooseAccountIntent(null, null, arrayOf("com.google"), null, null, null, null))
+    }
 
     Column(Modifier.fillMaxSize().background(c.surface).statusBarsPadding().navigationBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -82,7 +151,7 @@ fun SignInScreen(onDone: () -> Unit, onCancel: () -> Unit) {
             }
         }
         Box(Modifier.weight(1f)) {
-            AndroidView(
+            startUrl?.let { firstUrl -> AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { context ->
                     val cookies = CookieManager.getInstance()
@@ -116,11 +185,11 @@ fun SignInScreen(onDone: () -> Unit, onCancel: () -> Unit) {
                                 }
                             }
                         }
-                        loadUrl(SIGN_IN_URL)
+                        loadUrl(firstUrl)
                     }
                 },
-            )
-            if (finishing || error != null) {
+            ) }
+            if (startUrl == null || finishing || error != null) {
                 Column(
                     Modifier.fillMaxSize().background(c.surface).padding(32.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -129,7 +198,7 @@ fun SignInScreen(onDone: () -> Unit, onCancel: () -> Unit) {
                     if (error == null) {
                         CircularProgressIndicator(color = c.primary, strokeWidth = 4.dp, modifier = Modifier.size(36.dp))
                         Spacer(Modifier.height(16.dp))
-                        Text("Finishing sign-in…", fontWeight = FontWeight.Bold)
+                        Text(if (startUrl == null) "Memilih akun Google…" else "Finishing sign-in…", fontWeight = FontWeight.Bold)
                     } else {
                         Text(error.orEmpty(), textAlign = TextAlign.Center, color = c.onSurfaceVariant)
                         Spacer(Modifier.height(16.dp))
