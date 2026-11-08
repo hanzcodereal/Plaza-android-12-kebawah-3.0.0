@@ -69,6 +69,9 @@ class FeedState(
     /** Rak Shorts yang menyertai feed (Beranda); kosong kalau YouTube tidak menyertakannya. */
     var shorts by mutableStateOf<List<VideoItem>>(emptyList())
         private set
+    /** Postingan komunitas yang menyertai feed (Beranda). */
+    var posts by mutableStateOf<List<ChannelPost>>(emptyList())
+        private set
     /** Siaran langsung untuk rak Live di Beranda. */
     var live by mutableStateOf<List<VideoItem>>(emptyList())
         private set
@@ -102,6 +105,7 @@ class FeedState(
                 .onSuccess {
                     videos = it.videos; next = it.next; generation++
                     if (it.shorts.isNotEmpty()) shorts = it.shorts
+                    if (it.posts.isNotEmpty()) posts = it.posts
                     liveLoader?.let { load -> launch { runCatching { load() }.onSuccess { l -> if (l.isNotEmpty()) live = l } } }
                     if (freshOnRefresh) it.videos.forEach { v -> shown += v.id }
                     it.videos.take(prefetchTop).forEach { v -> StreamCache.prefetch(v.id) }
@@ -148,7 +152,7 @@ class FeedState(
             pages++
         }
         if (fresh.isEmpty()) return first
-        return FeedPage(fresh.values.toList(), token, first.shorts)
+        return FeedPage(fresh.values.toList(), token, first.shorts, first.posts)
     }
 
     /** Membuang video dari daftar sekarang juga (mis. channel yang baru dihentikan langganannya). */
@@ -160,7 +164,7 @@ class FeedState(
     fun reset() {
         job?.cancel()
         shown.clear()
-        videos = emptyList(); shorts = emptyList(); live = emptyList(); next = null; loaded = false; loading = false; error = null
+        videos = emptyList(); shorts = emptyList(); posts = emptyList(); live = emptyList(); next = null; loaded = false; loading = false; error = null
     }
 
     private companion object {
@@ -248,9 +252,14 @@ fun FeedList(
     /** Beranda: sisipkan rak Shorts setelah beberapa video pertama. */
     showShorts: Boolean = false,
     showLive: Boolean = false,
+    /** Beranda: tampilkan rak Postingan. */
+    showPosts: Boolean = false,
+    /** Short dari rak dibuka di halaman Shorts. */
+    onOpenShort: (VideoItem) -> Unit = onOpen,
 ) {
     val c = MaterialTheme.colorScheme
     val list = rememberScrollToTop(scrollToTop)
+    var postViewer by remember { mutableStateOf<Int?>(null) }
     // Fresh content always starts at the top (first load and every refresh).
     LaunchedEffect(feed.generation) { list.scrollToItem(0) }
     val nearEnd by remember {
@@ -263,10 +272,11 @@ fun FeedList(
     PullToRefresh(enabled = pullToRefresh, refreshing = feed.refreshing, onRefresh = feed::refresh, topPadding = indicatorTop) {
     LazyColumn(state = list, contentPadding = contentPadding) {
         header()
-        if (((showShorts && feed.shorts.isNotEmpty()) || (showLive && feed.live.isNotEmpty())) && feed.videos.isNotEmpty()) {
+        if (((showShorts && feed.shorts.isNotEmpty()) || (showLive && feed.live.isNotEmpty()) || (showPosts && feed.posts.isNotEmpty())) && feed.videos.isNotEmpty()) {
             items(feed.videos.take(SHELF_AFTER), key = { it.id }) { video -> VideoCard(video, onClick = { onOpen(video) }) }
             if (showLive && feed.live.isNotEmpty()) item(key = "liveShelf") { LiveShelf(feed.live, onOpen) }
-            if (showShorts && feed.shorts.isNotEmpty()) item(key = "shortsShelf") { ShortsShelf(feed.shorts, onOpen) }
+            if (showShorts && feed.shorts.isNotEmpty()) item(key = "shortsShelf") { ShortsShelf(feed.shorts, onOpenShort) }
+            if (showPosts && feed.posts.isNotEmpty()) item(key = "postsShelf") { PostsShelf(feed.posts) { postViewer = it } }
             items(feed.videos.drop(SHELF_AFTER), key = { it.id }) { video -> VideoCard(video, onClick = { onOpen(video) }) }
         } else {
             items(feed.videos, key = { it.id }) { video -> VideoCard(video, onClick = { onOpen(video) }) }
@@ -290,6 +300,7 @@ fun FeedList(
         }
     }
     }
+    postViewer?.let { at -> PostViewer(feed.posts, at, onClose = { postViewer = null }) }
 }
 
 private const val SHELF_AFTER = 3

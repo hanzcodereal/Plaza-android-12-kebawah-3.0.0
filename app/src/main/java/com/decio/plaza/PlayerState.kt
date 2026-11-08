@@ -150,6 +150,7 @@ class PlayerState(private val scope: CoroutineScope) {
 
     fun open(item: VideoItem, expand: Boolean = true) {
         if (expand) expanded = true
+        LocalHistory.add(item)
         if (current?.id == item.id && error == null) return
         if (item.live) LiveIds.ids += item.id
         known[item.id] = item

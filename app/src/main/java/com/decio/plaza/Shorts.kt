@@ -457,6 +457,29 @@ class ShortsState(context: Context, private val scope: CoroutineScope) {
         tick()
     }
 
+    /** Buka Shorts tepat di [video] (dari rak Shorts Beranda atau tab Shorts channel); sisanya lanjut dari feed. */
+    fun startWith(video: VideoItem) {
+        pageJob?.cancel()
+        loading = false
+        releasePlayers()
+        items = listOf(video) + items.filter { it.id != video.id }
+        index = 0
+        feedVersion++
+        userPaused = false
+        progress = 0f
+        commentsOpen = false
+        channelMenu = false
+        items.take(LinkFetches).forEach { want(it.id) }
+        if (active) markShown()
+        if (items.size < 6) scope.launch {
+            runCatching { InnerTube.shorts(next) }.onSuccess { page ->
+                val seen = items.mapTo(HashSet()) { it.id }
+                items = items + page.videos.filter { seen.add(it.id) }
+                next = page.next ?: next
+            }
+        }
+    }
+
     private fun markShown() {
         // Seen: out of the bank (another unseen short takes its place), and its comments start
         // loading now so they're there when the panel opens.

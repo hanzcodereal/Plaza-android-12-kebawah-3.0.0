@@ -89,6 +89,7 @@ fun HomeScreen(
     onSignIn: () -> Unit,
     onAccount: () -> Unit,
     scrollToTop: Int = 0,
+    onOpenShort: (VideoItem) -> Unit = onOpen,
 ) {
     val signedIn = Account.signedIn
     LaunchedEffect(signedIn) { if (signedIn) lib.home.ensureLoaded() }
@@ -97,7 +98,7 @@ fun HomeScreen(
         header = { ScreenHeader(title = "Plaza", brandMark = true) { UpdateAction(); AccountAction(onAccount) } },
     ) { top ->
         if (signedIn) {
-            FeedList(lib.home, contentPadding.withTop(top), onOpen, scrollToTop = scrollToTop, indicatorTop = top, showShorts = ShortsSetting.enabled, showLive = true)
+            FeedList(lib.home, contentPadding.withTop(top), onOpen, scrollToTop = scrollToTop, indicatorTop = top, showShorts = ShortsSetting.enabled, showLive = true, showPosts = true, onOpenShort = onOpenShort)
         } else {
             LazyColumn(contentPadding = contentPadding.withTop(top)) {
                 item {
@@ -214,7 +215,8 @@ fun LibraryScreen(
     val signedIn = Account.signedIn
     LaunchedEffect(signedIn) {
         if (signedIn) {
-            lib.history.ensureLoaded()
+            // Tiap Perpustakaan dibuka, riwayat dimuat ulang supaya yang baru ditonton ikut muncul.
+            if (lib.history.videos.isEmpty()) lib.history.ensureLoaded() else lib.history.refresh()
             if (lib.playlists.isEmpty()) lib.loadPlaylists()
         }
     }
@@ -242,7 +244,8 @@ fun LibraryScreen(
             }
             item(key = "historyTitle") { SectionTitle(tr("History")) }
             item(key = "history") {
-                val history = lib.history.videos
+                // Riwayat HP ini (langsung bertambah) di depan, disusul riwayat akun.
+                val history = (LocalHistory.items + lib.history.videos).distinctBy { it.id }
                 when {
                     history.isNotEmpty() -> LazyRow(
                         contentPadding = PaddingValues(horizontal = 16.dp),

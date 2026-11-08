@@ -199,8 +199,16 @@ fun PlazaApp() {
     // Shorts: its own feed and players; ‹ (and Back) return to the tab it was opened from.
     // One per process (PlazaApplication), so its bank keeps filling with no window open.
     val shorts = (LocalContext.current.applicationContext as PlazaApplication).shorts
+    LocalHistory.init(LocalContext.current)
     DisposableEffect(shorts) { onDispose { shorts.leave() } }
     var shortsFrom by rememberSaveable { mutableStateOf(Tab.Home) }
+    // Short dari beranda / halaman channel: langsung ke halaman Shorts, mulai dari short itu.
+    val openShort: (VideoItem) -> Unit = { v ->
+        if (tab != Tab.Shorts) shortsFrom = tab
+        openPlaylist = null; openChannel = null
+        shorts.startWith(v)
+        tab = Tab.Shorts
+    }
     // Bumped when the already-selected tab is tapped; that tab's list scrolls to the top.
     val scrollToTop = remember { mutableStateMapOf<Tab, Int>() }
     val reduced = rememberReducedMotion()
@@ -399,6 +407,7 @@ fun PlazaApp() {
                     lib, contentPadding, onOpen = player::open, onSearch = { tab = Tab.Search },
                     onSignIn = { signingIn = true }, onAccount = { accountSheet = true },
                     scrollToTop = scrollToTop[Tab.Home] ?: 0,
+                    onOpenShort = openShort,
                 )
                 Tab.Subscriptions -> SubscriptionsScreen(
                     lib, contentPadding, onOpen = player::open,
@@ -441,6 +450,7 @@ fun PlazaApp() {
                     onOpen = { v -> if (tab == Tab.Shorts) tab = shortsFrom; player.open(v) },
                     onMessage = { player.actionMessage = it },
                     onOpenPlaylist = { pl -> openChannel = null; openPlaylist = pl },
+                    onOpenShort = openShort,
                 )
             }
         }

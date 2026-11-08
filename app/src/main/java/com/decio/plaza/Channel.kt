@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -142,6 +143,7 @@ class ChannelState(val url: String, private val scope: CoroutineScope) {
         val token = if (more) t.next else null
         val params = meta?.tabs?.get(kind) ?: InnerTube.CHANNEL_TAB_FALLBACK.getValue(kind)
         scope.launch {
+            var chain = false
             runCatching {
                 when (kind) {
                     "playlists" -> {
@@ -165,12 +167,15 @@ class ChannelState(val url: String, private val scope: CoroutineScope) {
                         val items = fill(d, page.videos)
                         val seen = HashSet<String>().apply { if (more) t.videos.forEach { add(it.id) } }
                         t.videos = if (more) t.videos + items.filter { seen.add(it.id) } else items
-                        t.next = if (items.isEmpty()) null else page.next
+                        // Halaman yang isinya tersaring semua (Shorts, khusus anggota) tidak menghentikan daftar.
+                        t.next = page.next?.takeIf { it != token }
+                        chain = items.isEmpty() && t.next != null
                     }
                 }
                 t.loaded = true
             }.onFailure { if (!more || t.size == 0) t.error = YouTube.friendlyError(it) }
             t.loading = false
+            if (chain) loadTab(kind, true)
         }
     }
 
@@ -194,9 +199,12 @@ fun ChannelScreen(
     onOpen: (VideoItem) -> Unit,
     onMessage: (String) -> Unit,
     onOpenPlaylist: (PlaylistRef) -> Unit = {},
+    /** Short dari channel: dibuka di halaman Shorts, bukan di pemutar biasa. */
+    onOpenShort: (VideoItem) -> Unit = onOpen,
 ) {
     val c = MaterialTheme.colorScheme
     val list = rememberLazyListState()
+    var viewerAt by remember { mutableStateOf<Int?>(null) }
     val cur = state.current
     val nearEnd by remember {
         derivedStateOf { (list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0) >= list.layoutInfo.totalItemsCount - 4 }
@@ -229,25 +237,27 @@ fun ChannelScreen(
                 CircularProgressIndicator(color = c.primary, strokeWidth = 4.dp, modifier = Modifier.size(36.dp))
             }
             else -> LazyColumn(state = list, contentPadding = contentPadding.withTop(top)) {
-                item(key = "header") {
+                item(key = "header") { Column {
+                    // Banner penuh selebar layar dan lebih tinggi, seperti di YouTube.
+                    if (d.banner != null) {
+                        Thumbnail(d.banner, Modifier.fillMaxWidth().aspectRatio(3.4f), radius = 0)
+                        Spacer(Modifier.height(14.dp))
+                    }
                     Column(Modifier.padding(horizontal = 16.dp)) {
-                        if (d.banner != null) {
-                            Thumbnail(d.banner, Modifier.fillMaxWidth().aspectRatio(5.6f), radius = 22)
-                            Spacer(Modifier.height(16.dp))
-                        }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             ChannelAvatar(d.avatar, d.name, size = 76)
                             Spacer(Modifier.width(14.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(d.name, fontFamily = RoundedHeavy, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                // Seperti YouTube: @username · pelanggan · jumlah video.
+                                // Pelanggan dan jumlah video di ATAS nama, lalu nama, lalu @username.
                                 val m = state.meta
-                                val line = listOfNotNull(
-                                    m?.handle,
-                                    d.subscribers.takeIf { it > 0 }?.let { "${formatCount(it)} ${tr("subscribers")}" },
+                                val subs = d.subscribers.takeIf { it > 0 } ?: m?.subscribers?.takeIf { it > 0 }
+                                val stats = listOfNotNull(
+                                    subs?.let { "${formatCount(it)} ${tr("subscribers")}" },
                                     m?.videoCount?.takeIf { it >= 0 }?.let { "${formatCount(it)} ${tr("videos")}" },
                                 )
-                                if (line.isNotEmpty()) Text(line.joinDots(), color = c.onSurfaceVariant, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                if (stats.isNotEmpty()) Text(stats.joinDots(), color = c.onSurfaceVariant, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text(d.name, fontFamily = RoundedHeavy, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                m?.handle?.let { Text(it, color = c.onSurfaceVariant, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                             }
                         }
                         state.subscribed?.let { subscribed ->
@@ -278,20 +288,23 @@ fun ChannelScreen(
                             }
                         }
                     }
-                }
+                } }
                 item(key = "tabs") {
                     ChannelTabRow(state.tabs, state.tab, state::select)
                 }
                 when (state.tab) {
                     "shorts" -> items(cur.videos.chunked(3), key = { row -> "s" + row.first().id }) { row ->
                         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            row.forEach { short -> ShortCard(short, Modifier.weight(1f), onOpen) }
+                            row.forEach { short -> ShortCard(short, Modifier.weight(1f), onOpenShort) }
                             repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                         }
                     }
                     "playlists" -> items(cur.playlists, key = { "p" + it.id }) { pl -> ChannelPlaylistRow(pl) { onOpenPlaylist(pl) } }
-                    "posts" -> items(cur.posts, key = { "c" + it.id }) { post -> ChannelPostCard(post) }
-                    else -> items(cur.videos, key = { it.id }) { video -> VideoCard(video, onClick = { onOpen(video) }) }
+                    "posts" -> itemsIndexed(cur.posts, key = { _, post -> "c" + post.id }) { i, post ->
+                        PostCard(post, showAuthor = false, onOpen = { viewerAt = i }, onComments = { viewerAt = i }, onMessage = onMessage)
+                    }
+                    // Daftar ringkas (gambar kecil di kiri) seperti di YouTube: video tidak memenuhi layar.
+                    else -> items(cur.videos, key = { it.id }) { video -> ChannelVideoRow(video) { onOpen(video) } }
                 }
                 if (cur.error != null && cur.size == 0) item(key = "tabError") {
                     EmptyState(Icons.Rounded.CloudOff, tr("Couldn't load this"), cur.error.orEmpty(), action = { PillButton(tr("Try again"), state::retryTab) })
@@ -316,6 +329,7 @@ fun ChannelScreen(
             }
         }
     }
+    viewerAt?.let { at -> PostViewer(state.data.getValue("posts").posts, at, onClose = { viewerAt = null }, onMessage = onMessage) }
     }
 }
 
@@ -378,26 +392,26 @@ private fun ChannelPlaylistRow(playlist: PlaylistRef, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ChannelPostCard(post: ChannelPost) {
+private fun ChannelVideoRow(video: VideoItem, onClick: () -> Unit) {
     val c = MaterialTheme.colorScheme
-    Column(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
-            .clip(androidx.compose.foundation.shape.RoundedCornerShape(20.dp))
-            .background(c.surfaceContainerLow)
-            .padding(14.dp),
+    val menu = LocalVideoMenu.current
+    Row(
+        Modifier.fillMaxWidth().prefetchOnPress(video.id)
+            .pressable(pressedScale = 0.98f, onLongClick = { menu(video) }, onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
-        if (post.ago != null) Text(post.ago, color = c.onSurfaceVariant, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-        if (post.text.isNotBlank()) {
-            Spacer(Modifier.height(6.dp))
-            Text(post.text, fontSize = 14.5.sp, lineHeight = 20.sp)
+        Box(Modifier.width(168.dp)) {
+            Thumbnail(video.thumbnail, Modifier.fillMaxWidth().aspectRatio(16f / 9f), radius = 12)
+            DurationPill(video.durationSec, Modifier.align(Alignment.BottomEnd).padding(5.dp), small = true, live = video.live)
+            ResumeBar(video.id, Modifier.align(Alignment.BottomStart), fallback = video.watched)
         }
-        if (post.image != null) {
-            Spacer(Modifier.height(10.dp))
-            Thumbnail(post.image, Modifier.fillMaxWidth().aspectRatio(16f / 9f), radius = 14)
-        }
-        if (!post.likes.isNullOrBlank()) {
-            Spacer(Modifier.height(8.dp))
-            Text("${post.likes} ${tr("likes")}", color = c.onSurfaceVariant, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(video.title, fontWeight = FontWeight.Bold, fontSize = 14.sp, lineHeight = 18.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            val meta = listOfNotNull(video.views.takeIf { it >= 0 }?.let { "${formatCount(it)} ${tr("views")}" }, video.uploaded)
+            if (meta.isNotEmpty()) {
+                Text(meta.joinDots(), color = c.onSurfaceVariant, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+            }
         }
     }
 }

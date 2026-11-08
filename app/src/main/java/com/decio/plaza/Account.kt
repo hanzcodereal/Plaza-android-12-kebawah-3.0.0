@@ -32,15 +32,33 @@ data class ChannelRef(val id: String, val name: String, val avatar: String?)
 
 /** One page of a feed plus the token for the next page, if any. */
 @Immutable
-data class FeedPage(val videos: List<VideoItem>, val next: String?, val shorts: List<VideoItem> = emptyList())
+data class FeedPage(val videos: List<VideoItem>, val next: String?, val shorts: List<VideoItem> = emptyList(), val posts: List<ChannelPost> = emptyList())
 
 /** Isi halaman channel: username @, jumlah video, dan tab yang dimiliki channel (jenis → params). */
 @Immutable
-data class ChannelMeta(val handle: String?, val videoCount: Long, val tabs: Map<String, String>)
+data class ChannelMeta(val handle: String?, val videoCount: Long, val tabs: Map<String, String>, val subscribers: Long = -1)
 
 /** Satu postingan komunitas channel. */
 @Immutable
-data class ChannelPost(val id: String, val text: String, val ago: String?, val likes: String?, val image: String?)
+data class ChannelPost(
+    val id: String,
+    val text: String,
+    val ago: String?,
+    val likes: String?,
+    val image: String?,
+    /** Semua gambar postingan (ukuran penuh, tanpa potongan); lebih dari satu = digeser. */
+    val images: List<String> = emptyList(),
+    val author: String? = null,
+    val authorAvatar: String? = null,
+    val authorId: String? = null,
+    /** Jumlah komentar sebagai teks ("12"). */
+    val comments: String? = null,
+    val commentBrowseId: String? = null,
+    val commentParams: String? = null,
+    val liked: Boolean = false,
+    val disliked: Boolean = false,
+    val likeParams: String? = null,
+)
 
 enum class LikeStatus { Like, Dislike, None }
 
@@ -291,6 +309,7 @@ object InnerTube {
 
     private val HANDLE = Regex("^@[A-Za-z0-9._\\-]+$")
     private val VIDEO_COUNT = Regex("(?i)\\d[\\d.,\\s]*(rb|jt|k|m|b)?\\s*videos?\\b")
+    private val SUB_COUNT = Regex("(?i)\\d[\\d.,\\s]*(rb|jt|k|m|b)?\\s*(subscribers?|pelanggan)\\b")
 
     /** Username @, jumlah video, dan tab-tab dari halaman utama channel. */
     suspend fun channelMeta(channelId: String): ChannelMeta = withContext(Dispatchers.IO) {
@@ -301,6 +320,7 @@ object InnerTube {
         val tabs = LinkedHashMap<String, String>()
         var handle: String? = null
         var count = -1L
+        var subs = -1L
         root.walk { key, obj ->
             when (key) {
                 "tabRenderer" -> {
@@ -327,15 +347,17 @@ object InnerTube {
                 "c4TabbedHeaderRenderer" -> {
                     if (handle == null) obj.text("channelHandleText")?.trim()?.takeIf { HANDLE.matches(it) }?.let { handle = it }
                     if (count < 0) obj.text("videosCountText")?.let { count = parseViews(it) }
+                    if (subs < 0) obj.text("subscriberCountText")?.let { subs = parseViews(it) }
                 }
                 "contentMetadataViewModel" -> obj.collectStrings("content").forEach { s ->
                     val t = s.trim()
                     if (handle == null && HANDLE.matches(t)) handle = t
+                    else if (subs < 0 && SUB_COUNT.containsMatchIn(t)) subs = parseViews(t)
                     else if (count < 0 && VIDEO_COUNT.containsMatchIn(t)) count = parseViews(t)
                 }
             }
         }
-        return ChannelMeta(handle, count, tabs)
+        return ChannelMeta(handle, count, tabs, subs)
     }
 
     /** Video atau siaran langsung dari satu tab channel (Video / Live), halaman berikutnya lewat [continuation]. */
@@ -402,23 +424,80 @@ object InnerTube {
             when (key) {
                 "backstagePostRenderer", "postRenderer" -> {
                     val id = obj.optString("postId").ifBlank { return@walk }
-                    val image = obj.optJSONObject("backstageAttachment")?.collectStrings("url")
-                        ?.firstOrNull { it.startsWith("http") && (it.contains("ggpht") || it.contains("ytimg") || it.contains("googleusercontent")) }
-                    out.getOrPut(id) {
-                        ChannelPost(
-                            id = id,
-                            text = obj.text("contentText").orEmpty(),
-                            ago = obj.text("publishedTimeText"),
-                            likes = obj.text("voteCount"),
-                            image = image,
-                        )
-                    }
+                    out.getOrPut(id) { parsePost(id, obj) }
                 }
                 "continuationItemRenderer", "continuationItemViewModel" ->
                     obj.collectStrings("token").firstOrNull()?.let { next = it }
             }
         }
         return out.values.toList() to next
+    }
+
+    /** Alamat gambar ukuran penuh, tanpa potongan (YouTube menyisipkan -c-fcrop di akhir alamat). */
+    internal fun fullSizeImage(url: String): String {
+        val u = if (url.startsWith("//")) "https:$url" else url
+        return if (u.contains("ggpht") || u.contains("googleusercontent")) u.substringBefore("=") + "=s1600" else u
+    }
+
+    private fun lastThumb(arr: JSONArray?): String? =
+        arr?.optJSONObject(arr.length() - 1)?.optString("url")?.takeIf { it.isNotBlank() }
+
+    internal fun parsePost(id: String, obj: JSONObject): ChannelPost {
+        val images = ArrayList<String>()
+        val attachment = obj.optJSONObject("backstageAttachment")
+        attachment?.walk { k, o ->
+            if (k == "backstageImageRenderer") lastThumb(o.optJSONObject("image")?.optJSONArray("thumbnails"))?.let { images += fullSizeImage(it) }
+        }
+        if (images.isEmpty()) {
+            attachment?.collectStrings("url")
+                ?.firstOrNull { it.startsWith("http") && (it.contains("ggpht") || it.contains("ytimg") || it.contains("googleusercontent")) }
+                ?.let { images += fullSizeImage(it) }
+        }
+        val actions = obj.optJSONObject("actionButtons")?.optJSONObject("commentActionButtonsRenderer")
+        val likeButton = actions?.optJSONObject("likeButton")?.optJSONObject("toggleButtonRenderer")
+        val dislikeButton = actions?.optJSONObject("dislikeButton")?.optJSONObject("toggleButtonRenderer")
+        val reply = actions?.optJSONObject("replyButton")?.optJSONObject("buttonRenderer")
+        val browse = reply?.optJSONObject("navigationEndpoint")?.optJSONObject("browseEndpoint")
+        return ChannelPost(
+            id = id,
+            text = obj.text("contentText").orEmpty(),
+            ago = obj.text("publishedTimeText"),
+            likes = obj.text("voteCount"),
+            image = images.firstOrNull(),
+            images = images.distinct(),
+            author = obj.text("authorText"),
+            authorAvatar = lastThumb(obj.optJSONObject("authorThumbnail")?.optJSONArray("thumbnails"))?.let { if (it.startsWith("//")) "https:$it" else it },
+            authorId = obj.optJSONObject("authorEndpoint")?.optJSONObject("browseEndpoint")?.optString("browseId")?.takeIf { it.startsWith("UC") },
+            comments = reply?.text("text"),
+            commentBrowseId = browse?.optString("browseId")?.takeIf { it.isNotBlank() },
+            commentParams = browse?.optString("params")?.takeIf { it.isNotBlank() },
+            liked = likeButton?.optBoolean("isToggled") == true,
+            disliked = dislikeButton?.optBoolean("isToggled") == true,
+            likeParams = likeButton?.collectStrings("likeParams")?.firstOrNull(),
+        )
+    }
+
+    /** Suka / tidak suka / batalkan suka untuk satu postingan komunitas. [action]: like, dislike, removelike. */
+    suspend fun reactToPost(item: ChannelPost, action: String) = withContext(Dispatchers.IO) {
+        val body = JSONObject().put("target", JSONObject().put("postId", item.id))
+        item.likeParams?.let { body.put("params", it) }
+        post("like/$action", body)
+        Unit
+    }
+
+    /** Komentar teratas satu postingan (halaman pertama). */
+    suspend fun postComments(item: ChannelPost): CommentsPage = withContext(Dispatchers.IO) {
+        val body = JSONObject().put("browseId", item.commentBrowseId ?: "FEpost_detail")
+        item.commentParams?.let { body.put("params", it) }
+        val page = postAny("browse", body)
+        var token: String? = null
+        page.forEachObject { o ->
+            if (token == null && o.optString("sectionIdentifier") == "comment-item-section") token = o.collectStrings("token").firstOrNull()
+        }
+        val start = token ?: return@withContext CommentsPage(emptyList(), total = -1, disabled = true, next = null)
+        val first = runCatching { CommentFeed.parsePage(postAny("browse", JSONObject().put("continuation", start))) }.getOrNull()
+        if (first != null && first.comments.isNotEmpty()) first
+        else CommentFeed.parsePage(postAny("next", JSONObject().put("continuation", start)))
     }
 
     /** The channel page's Videos tab selector (as on youtube.com, 2026-10-06). */
@@ -688,9 +767,11 @@ object InnerTube {
     internal fun parseFeed(root: JSONObject): FeedPage {
         val videos = LinkedHashMap<String, VideoItem>()
         val shorts = LinkedHashMap<String, VideoItem>()
+        val posts = LinkedHashMap<String, ChannelPost>()
         var next: String? = null
         root.walk { key, obj ->
             when (key) {
+                "backstagePostRenderer", "postRenderer" -> obj.optString("postId").takeIf { it.isNotBlank() }?.let { id -> posts.getOrPut(id) { parsePost(id, obj) } }
                 "reelItemRenderer", "shortsLockupViewModel" -> parseShortCard(key, obj)?.let { shorts.putIfAbsent(it.id, it) }
                 // Members-only videos can't be played (anonymous extraction), and full movies/TV
                 // aren't wanted (Derek), so neither is ever shown.
@@ -705,7 +786,7 @@ object InnerTube {
                     obj.collectStrings("token").firstOrNull()?.let { next = it }
             }
         }
-        return FeedPage(videos.values.toList(), next, shorts.values.toList())
+        return FeedPage(videos.values.toList(), next, shorts.values.toList(), posts.values.toList())
     }
 
     /** Kartu Short di feed atau tab Shorts channel: renderer lama (reelItemRenderer) atau baru (shortsLockupViewModel). */
