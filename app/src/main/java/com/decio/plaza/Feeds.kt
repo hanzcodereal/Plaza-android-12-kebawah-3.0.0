@@ -256,6 +256,8 @@ fun FeedList(
     showPosts: Boolean = false,
     /** Short dari rak dibuka di halaman Shorts. */
     onOpenShort: (VideoItem) -> Unit = onOpen,
+    /** Daftar ringkas (gambar kecil di kiri) seperti playlist di YouTube, bukan kartu selebar layar. */
+    compact: Boolean = false,
 ) {
     val c = MaterialTheme.colorScheme
     val list = rememberScrollToTop(scrollToTop)
@@ -273,13 +275,13 @@ fun FeedList(
     LazyColumn(state = list, contentPadding = contentPadding) {
         header()
         if (((showShorts && feed.shorts.isNotEmpty()) || (showLive && feed.live.isNotEmpty()) || (showPosts && feed.posts.isNotEmpty())) && feed.videos.isNotEmpty()) {
-            items(feed.videos.take(SHELF_AFTER), key = { it.id }) { video -> VideoCard(video, onClick = { onOpen(video) }) }
+            items(feed.videos.take(SHELF_AFTER), key = { it.id }) { video -> if (compact) CompactVideoRow(video) { onOpen(video) } else VideoCard(video, onClick = { onOpen(video) }) }
             if (showLive && feed.live.isNotEmpty()) item(key = "liveShelf") { LiveShelf(feed.live, onOpen) }
             if (showShorts && feed.shorts.isNotEmpty()) item(key = "shortsShelf") { ShortsShelf(feed.shorts, onOpenShort) }
             if (showPosts && feed.posts.isNotEmpty()) item(key = "postsShelf") { PostsShelf(feed.posts) { postViewer = it } }
-            items(feed.videos.drop(SHELF_AFTER), key = { it.id }) { video -> VideoCard(video, onClick = { onOpen(video) }) }
+            items(feed.videos.drop(SHELF_AFTER), key = { it.id }) { video -> if (compact) CompactVideoRow(video) { onOpen(video) } else VideoCard(video, onClick = { onOpen(video) }) }
         } else {
-            items(feed.videos, key = { it.id }) { video -> VideoCard(video, onClick = { onOpen(video) }) }
+            items(feed.videos, key = { it.id }) { video -> if (compact) CompactVideoRow(video) { onOpen(video) } else VideoCard(video, onClick = { onOpen(video) }) }
         }
         when {
             // No keys on these trailing items: a keyed loader at index 0 makes LazyColumn

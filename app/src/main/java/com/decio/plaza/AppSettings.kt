@@ -143,7 +143,8 @@ object LocaleSettings {
         val p = context.getSharedPreferences("locale", Context.MODE_PRIVATE).also { prefs = it }
         languageChoice = p.getString(KEY_LANGUAGE, null) ?: DEFAULT
         countryChoice = p.getString(KEY_COUNTRY, null) ?: DEFAULT
-        needsRegionPrompt = !p.getBoolean(KEY_PROMPTED, false) && p.getString(KEY_COUNTRY, null) == null
+        // Tidak ada layar pilih wilayah di awal: wilayah mengikuti perangkat (bisa diubah di pengaturan).
+        needsRegionPrompt = false
         apply()
     }
 

@@ -199,7 +199,6 @@ fun PlazaApp() {
     // Shorts: its own feed and players; ‹ (and Back) return to the tab it was opened from.
     // One per process (PlazaApplication), so its bank keeps filling with no window open.
     val shorts = (LocalContext.current.applicationContext as PlazaApplication).shorts
-    LocalHistory.init(LocalContext.current)
     DisposableEffect(shorts) { onDispose { shorts.leave() } }
     var shortsFrom by rememberSaveable { mutableStateOf(Tab.Home) }
     // Short dari beranda / halaman channel: langsung ke halaman Shorts, mulai dari short itu.

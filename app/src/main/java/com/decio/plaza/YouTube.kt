@@ -161,6 +161,8 @@ data class CommentsPage(
     val next: String?,
     /** The video's chapters, read off the same first `next` page (see [CommentFeed.parseChapters]). */
     val chapters: List<Chapter> = emptyList(),
+    /** Tanda untuk menulis komentar baru (dipakai komentar postingan). */
+    val createParams: String? = null,
 )
 
 /** Everything the app asks of YouTube goes through here. All calls are blocking-safe (IO). */
@@ -588,9 +590,16 @@ object StreamSelection {
     fun liveHls(info: StreamInfo): String? =
         if (info.streamType == StreamType.LIVE_STREAM) info.hlsUrl?.takeIf { it.isNotBlank() } else null
 
-    fun heights(info: StreamInfo): List<Int> = info.videoOnlyStreams
-        .filter { it.isUrl && it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP && it.height > 0 }
-        .map { it.height }
-        .distinct()
-        .sortedDescending()
+    /**
+     * Semua tinggi video yang ditawarkan, tertinggi dulu. Dulu hanya aliran video-saja progresif yang
+     * dihitung, sehingga pada sebagian video daftar kualitas kosong dan cuma "Auto" yang bisa dipilih.
+     * Sekarang aliran gabungan dan aliran DASH ikut dihitung, dan siaran langsung punya tangga bawaan.
+     */
+    fun heights(info: StreamInfo): List<Int> {
+        val all = (info.videoOnlyStreams + info.videoStreams).filter { it.isUrl && it.height > 0 }
+        val progressive = all.filter { it.deliveryMethod == DeliveryMethod.PROGRESSIVE_HTTP }.map { it.height }
+        val found = progressive.ifEmpty { all.map { it.height } }
+        val list = if (found.isEmpty() && info.streamType == StreamType.LIVE_STREAM) listOf(1080, 720, 480, 360, 240, 144) else found
+        return list.distinct().sortedDescending()
+    }
 }

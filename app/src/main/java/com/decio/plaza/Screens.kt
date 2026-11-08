@@ -218,6 +218,9 @@ fun LibraryScreen(
             // Tiap Perpustakaan dibuka, riwayat dimuat ulang supaya yang baru ditonton ikut muncul.
             if (lib.history.videos.isEmpty()) lib.history.ensureLoaded() else lib.history.refresh()
             if (lib.playlists.isEmpty()) lib.loadPlaylists()
+            // YouTube butuh beberapa detik untuk mencatat tontonan terakhir: muat sekali lagi.
+            kotlinx.coroutines.delay(4_000)
+            lib.history.refresh()
         }
     }
     CollapsingHeaderLayout(
@@ -244,8 +247,7 @@ fun LibraryScreen(
             }
             item(key = "historyTitle") { SectionTitle(tr("History")) }
             item(key = "history") {
-                // Riwayat HP ini (langsung bertambah) di depan, disusul riwayat akun.
-                val history = (LocalHistory.items + lib.history.videos).distinctBy { it.id }
+                val history = lib.history.videos
                 when {
                     history.isNotEmpty() -> LazyRow(
                         contentPadding = PaddingValues(horizontal = 16.dp),
@@ -356,7 +358,7 @@ fun PlaylistScreen(playlist: PlaylistRef, feed: FeedState, contentPadding: Paddi
         if (feed.videos.isEmpty() && !feed.loading && feed.error == null && !feed.hasMore) {
             Box(Modifier.padding(top = top)) { EmptyState(Icons.Rounded.VideoLibrary, tr("Nothing here yet"), tr("Videos you add to this playlist will show up here.")) }
         } else {
-            FeedList(feed, contentPadding.withTop(top), onOpen, indicatorTop = top)
+            FeedList(feed, contentPadding.withTop(top), onOpen, indicatorTop = top, compact = true)
         }
     }
     }

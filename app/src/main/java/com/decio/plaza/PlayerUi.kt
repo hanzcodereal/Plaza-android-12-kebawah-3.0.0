@@ -241,7 +241,19 @@ fun PlayerScreen(
                             letterSpacing = (-0.6).sp,
                         )
                         Spacer(Modifier.height(6.dp))
-                        val stats = listOfNotNull(
+                        // Siaran langsung: suka, jumlah penonton, dan tanggal dibaca dari halaman YouTube dan diperbarui berkala.
+                        var liveInfo by remember(item.id) { mutableStateOf<LiveInfo?>(null) }
+                        LaunchedEffect(item.id, item.live) {
+                            if (item.live) while (true) {
+                                runCatching { LiveChatApi.info(item.id) }.getOrNull()?.let { liveInfo = it }
+                                kotlinx.coroutines.delay(10_000)
+                            }
+                        }
+                        val stats = if (item.live) listOfNotNull(
+                            liveInfo?.viewers ?: item.views.takeIf { it >= 0 }?.let { "${formatCount(it)} ${if (AppLanguage.code == AppLanguage.ID) "sedang menonton" else "watching"}" },
+                            liveInfo?.date ?: item.uploaded?.ifBlank { null }?.let(::localizeAgo),
+                            (liveInfo?.likes ?: details?.likes?.takeIf { it > 0 }?.let { formatCount(it) })?.let { "$it ${tr("likes")}" },
+                        ).joinDots() else listOfNotNull(
                             item.views.takeIf { it >= 0 }?.let { "${formatCount(it)} ${tr("views")}" },
                             item.uploaded?.ifBlank { null }?.let(::localizeAgo),
                             details?.likes?.takeIf { it > 0 }?.let { "${formatCount(it)} ${tr("likes")}" },
@@ -299,7 +311,7 @@ fun PlayerScreen(
                         // Speed and audio only live in the player's bar now (PlayerBar.kt).
                         PlayerActions(state)
                         QueueCard(state, onOpen = { state.sheet = PlayerSheet.Queue })
-                        CommentsCard(state.comments, onOpen = { state.sheet = PlayerSheet.Comments })
+                        if (item.live) LiveChatCard(item.id) else CommentsCard(state.comments, onOpen = { state.sheet = PlayerSheet.Comments })
                     }
                 }
                 val related = details?.related.orEmpty()

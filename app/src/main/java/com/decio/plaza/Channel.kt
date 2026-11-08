@@ -248,16 +248,16 @@ fun ChannelScreen(
                             ChannelAvatar(d.avatar, d.name, size = 76)
                             Spacer(Modifier.width(14.dp))
                             Column(Modifier.weight(1f)) {
-                                // Pelanggan dan jumlah video di ATAS nama, lalu nama, lalu @username.
+                                // Urutan: nama, @username, lalu pelanggan dan jumlah video.
                                 val m = state.meta
+                                Text(d.name, fontFamily = RoundedHeavy, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                m?.handle?.let { Text(it, color = c.onSurfaceVariant, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                                 val subs = d.subscribers.takeIf { it > 0 } ?: m?.subscribers?.takeIf { it > 0 }
                                 val stats = listOfNotNull(
                                     subs?.let { "${formatCount(it)} ${tr("subscribers")}" },
                                     m?.videoCount?.takeIf { it >= 0 }?.let { "${formatCount(it)} ${tr("videos")}" },
                                 )
                                 if (stats.isNotEmpty()) Text(stats.joinDots(), color = c.onSurfaceVariant, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                Text(d.name, fontFamily = RoundedHeavy, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                m?.handle?.let { Text(it, color = c.onSurfaceVariant, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                             }
                         }
                         state.subscribed?.let { subscribed ->
@@ -304,7 +304,7 @@ fun ChannelScreen(
                         PostCard(post, showAuthor = false, onOpen = { viewerAt = i }, onComments = { viewerAt = i }, onMessage = onMessage)
                     }
                     // Daftar ringkas (gambar kecil di kiri) seperti di YouTube: video tidak memenuhi layar.
-                    else -> items(cur.videos, key = { it.id }) { video -> ChannelVideoRow(video) { onOpen(video) } }
+                    else -> items(cur.videos, key = { it.id }) { video -> CompactVideoRow(video) { onOpen(video) } }
                 }
                 if (cur.error != null && cur.size == 0) item(key = "tabError") {
                     EmptyState(Icons.Rounded.CloudOff, tr("Couldn't load this"), cur.error.orEmpty(), action = { PillButton(tr("Try again"), state::retryTab) })
@@ -392,7 +392,7 @@ private fun ChannelPlaylistRow(playlist: PlaylistRef, onClick: () -> Unit) {
 }
 
 @Composable
-private fun ChannelVideoRow(video: VideoItem, onClick: () -> Unit) {
+fun CompactVideoRow(video: VideoItem, onClick: () -> Unit) {
     val c = MaterialTheme.colorScheme
     val menu = LocalVideoMenu.current
     Row(

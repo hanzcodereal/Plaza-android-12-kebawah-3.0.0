@@ -150,7 +150,6 @@ class PlayerState(private val scope: CoroutineScope) {
 
     fun open(item: VideoItem, expand: Boolean = true) {
         if (expand) expanded = true
-        LocalHistory.add(item)
         if (current?.id == item.id && error == null) return
         if (item.live) LiveIds.ids += item.id
         known[item.id] = item
@@ -527,6 +526,14 @@ class PlayerState(private val scope: CoroutineScope) {
         QualityPreference.set(height)
         val player = controller ?: return
         val item = details?.item ?: current ?: return
+        // Siaran langsung (HLS): kualitas dipilih lewat batas tinggi video, tanpa memuat ulang siaran.
+        if (item.live) {
+            val params = player.trackSelectionParameters.buildUpon()
+            if (height == null) params.clearVideoSizeConstraints() else params.setMaxVideoSize(Int.MAX_VALUE, height)
+            player.trackSelectionParameters = params.build()
+            details = details?.copy(quality = height?.let { "${it}p" })
+            return
+        }
         val position = player.currentPosition
         val playWhenReady = player.playWhenReady
         replaceCurrent(player, item, position)

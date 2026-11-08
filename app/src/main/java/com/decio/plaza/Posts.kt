@@ -1,6 +1,8 @@
 package com.decio.plaza
 
 import android.content.Intent
+import android.graphics.drawable.ColorDrawable
+import android.view.ViewGroup
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -44,6 +46,13 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.view.WindowCompat
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -145,18 +154,12 @@ private fun PostAction(icon: androidx.compose.ui.graphics.vector.ImageVector, la
     }
 }
 
-/** Kartu postingan di daftar (halaman channel): gambar utuh, tidak dipotong; ketuk untuk layar penuh. */
+/** Kartu postingan di daftar (halaman channel): selebar layar tanpa bingkai seperti YouTube, gambar utuh tidak dipotong. */
 @Composable
 fun PostCard(post: ChannelPost, showAuthor: Boolean, onOpen: () -> Unit, onComments: () -> Unit, onMessage: (String) -> Unit) {
     val c = MaterialTheme.colorScheme
-    Column(
-        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(c.surfaceContainerLow)
-            .clickable(onClick = onOpen)
-            .padding(14.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+    Column(Modifier.fillMaxWidth().clickable(onClick = onOpen).padding(top = 14.dp)) {
+        Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             if (showAuthor && post.author != null) {
                 ChannelAvatar(post.authorAvatar, post.author, size = 32)
                 Spacer(Modifier.width(8.dp))
@@ -166,26 +169,29 @@ fun PostCard(post: ChannelPost, showAuthor: Boolean, onOpen: () -> Unit, onComme
             if (post.ago != null) Text(post.ago, color = c.onSurfaceVariant, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         }
         if (post.text.isNotBlank()) {
-            Spacer(Modifier.height(8.dp))
-            Text(post.text, fontSize = 14.5.sp, lineHeight = 20.sp, maxLines = 8, overflow = TextOverflow.Ellipsis)
+            Text(
+                post.text, fontSize = 14.5.sp, lineHeight = 20.sp, maxLines = 8, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            )
         }
         if (post.images.isNotEmpty()) {
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(4.dp))
             Box {
                 AsyncImage(
                     model = post.images.first(), contentDescription = null, contentScale = ContentScale.FillWidth,
-                    modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(c.surfaceContainerHighest),
+                    modifier = Modifier.fillMaxWidth().background(c.surfaceContainerHighest),
                 )
                 if (post.images.size > 1) {
                     Text(
                         "1/${post.images.size}", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                        modifier = Modifier.align(Alignment.TopEnd).padding(8.dp).clip(CircleShape)
+                        modifier = Modifier.align(Alignment.TopEnd).padding(10.dp).clip(CircleShape)
                             .background(Color.Black.copy(alpha = 0.6f)).padding(horizontal = 8.dp, vertical = 3.dp),
                     )
                 }
             }
         }
-        PostActionsRow(post, onComments, onMessage, Modifier.padding(top = 6.dp))
+        PostActionsRow(post, onComments, onMessage, Modifier.padding(horizontal = 8.dp, vertical = 2.dp))
+        Box(Modifier.fillMaxWidth().height(8.dp).background(c.surfaceContainerLow))
     }
 }
 
@@ -253,6 +259,16 @@ fun PostViewer(posts: List<ChannelPost>, start: Int, onClose: () -> Unit, onMess
         onDismissRequest = onClose,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
+        // Jendela dialog memenuhi seluruh layar: tanpa bingkai, tanpa redup, latar hitam.
+        val window = (LocalView.current.parent as? DialogWindowProvider)?.window
+        SideEffect {
+            window?.apply {
+                setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                setBackgroundDrawable(ColorDrawable(android.graphics.Color.BLACK))
+                setDimAmount(0f)
+                WindowCompat.setDecorFitsSystemWindows(this, false)
+            }
+        }
         val pager = rememberPagerState(initialPage = start.coerceIn(0, posts.lastIndex)) { posts.size }
         Box(Modifier.fillMaxSize().background(Color.Black)) {
             VerticalPager(pager, Modifier.fillMaxSize(), key = { posts.getOrNull(it)?.id ?: it }) { page ->
@@ -332,7 +348,11 @@ private fun PostCommentsSheet(post: ChannelPost, onDismiss: () -> Unit) {
     val scope = rememberCoroutineScope()
     var page by remember(post.id) { mutableStateOf<CommentsPage?>(null) }
     var error by remember(post.id) { mutableStateOf<String?>(null) }
-    LaunchedEffect(post.id) {
+    var reload by remember(post.id) { mutableIntStateOf(0) }
+    var draft by remember(post.id) { mutableStateOf("") }
+    var sending by remember(post.id) { mutableStateOf(false) }
+    var sendError by remember(post.id) { mutableStateOf<String?>(null) }
+    LaunchedEffect(post.id, reload) {
         runCatching { InnerTube.postComments(post) }
             .onSuccess { p ->
                 page = p
@@ -341,39 +361,70 @@ private fun PostCommentsSheet(post: ChannelPost, onDismiss: () -> Unit) {
             .onFailure { error = YouTube.friendlyError(it) }
     }
     ModalBottomSheet(onDismissRequest = onDismiss, containerColor = c.surfaceContainerLow) {
-        Column(Modifier.fillMaxWidth().heightIn(min = 220.dp, max = 560.dp).padding(bottom = 16.dp)) {
+        Column(Modifier.fillMaxWidth().heightIn(min = 260.dp, max = 600.dp).padding(bottom = 16.dp)) {
             Text(
                 "Komentar" + (page?.total?.takeIf { it >= 0 }?.let { " · ${formatCount(it.toLong())}" } ?: ""),
                 fontFamily = RoundedHeavy, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp,
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
             )
             val p = page
-            when {
-                error != null -> Text(error.orEmpty(), color = c.onSurfaceVariant, modifier = Modifier.padding(20.dp))
-                p == null -> Box(Modifier.fillMaxWidth().padding(32.dp), Alignment.Center) {
-                    CircularProgressIndicator(color = c.primary, strokeWidth = 4.dp, modifier = Modifier.size(32.dp))
-                }
-                p.comments.isEmpty() -> Text(
-                    if (p.disabled) "Komentar tidak tersedia untuk postingan ini." else "Belum ada komentar.",
-                    color = c.onSurfaceVariant, modifier = Modifier.padding(20.dp),
-                )
-                else -> LazyColumn(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp)) {
-                    items(p.comments, key = { it.id }) { comment ->
-                        Row(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                            ChannelAvatar(comment.avatar, comment.displayName(), size = 36)
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    listOfNotNull(comment.displayName(), comment.ago).joinDots(),
-                                    color = c.onSurfaceVariant, fontSize = 12.sp, fontWeight = FontWeight.Bold,
-                                )
-                                Text(comment.text, fontSize = 14.sp, lineHeight = 19.sp, modifier = Modifier.padding(top = 2.dp))
-                                if (comment.likes > 0) Text("${formatCount(comment.likes.toLong())} suka", color = c.onSurfaceVariant, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+            Box(Modifier.weight(1f, fill = false)) {
+                when {
+                    error != null -> Text(error.orEmpty(), color = c.onSurfaceVariant, modifier = Modifier.padding(20.dp))
+                    p == null -> Box(Modifier.fillMaxWidth().padding(32.dp), Alignment.Center) {
+                        CircularProgressIndicator(color = c.primary, strokeWidth = 4.dp, modifier = Modifier.size(32.dp))
+                    }
+                    p.comments.isEmpty() -> Text(
+                        if (p.disabled) "Komentar tidak tersedia untuk postingan ini." else "Belum ada komentar.",
+                        color = c.onSurfaceVariant, modifier = Modifier.padding(20.dp),
+                    )
+                    else -> LazyColumn(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 4.dp)) {
+                        items(p.comments, key = { it.id }) { comment ->
+                            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                                ChannelAvatar(comment.avatar, comment.displayName(), size = 36)
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        listOfNotNull(comment.displayName(), comment.ago).joinDots(),
+                                        color = c.onSurfaceVariant, fontSize = 12.sp, fontWeight = FontWeight.Bold,
+                                    )
+                                    Text(comment.text, fontSize = 14.sp, lineHeight = 19.sp, modifier = Modifier.padding(top = 2.dp))
+                                    if (comment.likes > 0) Text("${formatCount(comment.likes.toLong())} suka", color = c.onSurfaceVariant, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+                                }
                             }
                         }
                     }
                 }
             }
+            // Kotak komentar di bawah, seperti di video.
+            when {
+                !Account.signedIn -> Text("Masuk dengan Google untuk menulis komentar.", color = c.onSurfaceVariant, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp))
+                p?.createParams == null -> if (p != null) Text("Komentar baru tidak bisa ditulis di postingan ini.", color = c.onSurfaceVariant, fontSize = 13.sp, modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp))
+                else -> Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    OutlinedTextField(
+                        value = draft, onValueChange = { draft = it },
+                        modifier = Modifier.weight(1f), shape = CircleShape, maxLines = 3,
+                        placeholder = { Text("Tulis komentar…") },
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Box(
+                        Modifier.size(46.dp).clip(CircleShape).background(c.primary)
+                            .clickable(enabled = !sending && draft.isNotBlank()) {
+                                val text = draft.trim()
+                                val params = p.createParams ?: return@clickable
+                                sending = true
+                                scope.launch {
+                                    runCatching { InnerTube.createPostComment(params, text) }
+                                        .onSuccess { draft = ""; sendError = null; reload++ }
+                                        .onFailure { sendError = YouTube.friendlyError(it) }
+                                    sending = false
+                                }
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(Icons.AutoMirrored.Rounded.Send, "Kirim", tint = c.onPrimary, modifier = Modifier.size(22.dp)) }
+                }
+            }
+            sendError?.let { Text(it, color = c.error, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 20.dp)) }
         }
     }
 }
