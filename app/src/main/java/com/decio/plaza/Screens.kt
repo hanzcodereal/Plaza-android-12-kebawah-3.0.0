@@ -39,7 +39,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.NorthWest
 import androidx.compose.material.icons.rounded.Search
+import androidx.compose.foundation.lazy.LazyItemScope
 import androidx.compose.material.icons.rounded.Subscriptions
 import androidx.compose.material.icons.rounded.TravelExplore
 import androidx.compose.material.icons.rounded.VideoLibrary
@@ -215,12 +217,8 @@ fun LibraryScreen(
     val signedIn = Account.signedIn
     LaunchedEffect(signedIn) {
         if (signedIn) {
-            // Tiap Perpustakaan dibuka, riwayat dimuat ulang supaya yang baru ditonton ikut muncul.
-            if (lib.history.videos.isEmpty()) lib.history.ensureLoaded() else lib.history.refresh()
+            lib.history.ensureLoaded()
             if (lib.playlists.isEmpty()) lib.loadPlaylists()
-            // YouTube butuh beberapa detik untuk mencatat tontonan terakhir: muat sekali lagi.
-            kotlinx.coroutines.delay(4_000)
-            lib.history.refresh()
         }
     }
     CollapsingHeaderLayout(
@@ -435,8 +433,20 @@ fun SearchScreen(state: SearchState, contentPadding: PaddingValues, onOpen: (Vid
     val imeVisible = WindowInsets.isImeVisible
     LaunchedEffect(imeVisible) { if (!imeVisible && focused) focus.clearFocus() }
     // Past searches, filtered by what's typed: while typing, and on the empty page.
-    val history = SearchHistory.matching(state.query)
-    val showHistory = history.isNotEmpty() && (focused || state.submitted.isEmpty())
+    // Saran dari YouTube muncul selagi mengetik (ditunda sebentar supaya tidak meminta tiap huruf).
+    var suggestions by remember { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(state.query, focused) {
+        if (state.query.isBlank() || !focused) {
+            suggestions = emptyList()
+        } else {
+            kotlinx.coroutines.delay(250)
+            suggestions = runCatching { SearchSuggestions.fetch(state.query) }.getOrDefault(emptyList())
+        }
+    }
+    val typing = state.query.isNotBlank()
+    val history = SearchHistory.matching(state.query).let { if (typing) it.take(3) else it }
+    val extra = suggestions.filter { s -> history.none { it.equals(s, ignoreCase = true) } }
+    val showHistory = (history.isNotEmpty() || extra.isNotEmpty()) && (focused || state.submitted.isEmpty())
     // The search bar rides with the header: both slide away together while scrolling results.
     CollapsingHeaderLayout(
         resetKey = Triple(scrollToTop, state.generation, showHistory),
@@ -491,8 +501,11 @@ fun SearchScreen(state: SearchState, contentPadding: PaddingValues, onOpen: (Vid
         when {
             showHistory -> SearchHistoryList(
                 history = history,
+                suggestions = extra,
+                showHeader = !typing,
                 contentPadding = contentPadding.withTop(top),
                 onSearch = { state.query = it; submit() },
+                onFill = { state.query = it },
             )
             state.loading && state.results.isEmpty() -> Box(Modifier.fillMaxWidth().padding(top = 48.dp), Alignment.Center) {
                 CircularProgressIndicator(color = c.primary, strokeWidth = 4.dp, modifier = Modifier.size(36.dp))
@@ -529,10 +542,17 @@ fun SearchScreen(state: SearchState, contentPadding: PaddingValues, onOpen: (Vid
 }
 
 @Composable
-private fun SearchHistoryList(history: List<String>, contentPadding: PaddingValues, onSearch: (String) -> Unit) {
+private fun SearchHistoryList(
+    history: List<String>,
+    suggestions: List<String>,
+    showHeader: Boolean,
+    contentPadding: PaddingValues,
+    onSearch: (String) -> Unit,
+    onFill: (String) -> Unit,
+) {
     val c = MaterialTheme.colorScheme
     LazyColumn(contentPadding = contentPadding) {
-        item(key = "header") {
+        if (showHeader && history.isNotEmpty()) item(key = "header") {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(end = 12.dp),
             ) {
@@ -540,31 +560,47 @@ private fun SearchHistoryList(history: List<String>, contentPadding: PaddingValu
                 Box(Modifier.alignByBaseline()) { TextLink(tr("Clear all")) { SearchHistory.clear() } }
             }
         }
-        items(history, key = { it }) { query ->
-            Row(
-                modifier = Modifier
-                    .animateItem()
-                    .fillMaxWidth()
-                    .pressable { onSearch(query) }
-                    .height(52.dp)
-                    .padding(start = 24.dp, end = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(Icons.Rounded.History, null, tint = c.onSurfaceVariant, modifier = Modifier.size(22.dp))
-                Spacer(Modifier.width(16.dp))
-                Text(
-                    query,
-                    modifier = Modifier.weight(1f),
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Box(
-                    modifier = Modifier.size(44.dp).pressable { SearchHistory.remove(query) },
-                    contentAlignment = Alignment.Center,
-                ) { Icon(Icons.Rounded.Close, tr("Remove"), tint = c.onSurfaceVariant, modifier = Modifier.size(20.dp)) }
-            }
+        items(history, key = { "h:" + it }) { query ->
+            SuggestionRow(query, Icons.Rounded.History, onClick = { onSearch(query) }, onFill = { onFill(query) }, onRemove = { SearchHistory.remove(query) })
         }
+        items(suggestions, key = { "s:" + it }) { query ->
+            SuggestionRow(query, Icons.Rounded.Search, onClick = { onSearch(query) }, onFill = { onFill(query) }, onRemove = null)
+        }
+    }
+}
+
+/** Satu baris saran: ikon, teks, (hapus untuk riwayat), dan panah untuk memasukkan teksnya ke kolom cari. */
+@Composable
+private fun LazyItemScope.SuggestionRow(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit, onFill: () -> Unit, onRemove: (() -> Unit)?) {
+    val c = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier
+            .animateItem()
+            .fillMaxWidth()
+            .pressable { onClick() }
+            .height(52.dp)
+            .padding(start = 24.dp, end = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = c.onSurfaceVariant, modifier = Modifier.size(22.dp))
+        Spacer(Modifier.width(16.dp))
+        Text(
+            text,
+            modifier = Modifier.weight(1f),
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        if (onRemove != null) {
+            Box(
+                modifier = Modifier.size(44.dp).pressable { onRemove() },
+                contentAlignment = Alignment.Center,
+            ) { Icon(Icons.Rounded.Close, tr("Remove"), tint = c.onSurfaceVariant, modifier = Modifier.size(20.dp)) }
+        }
+        Box(
+            modifier = Modifier.size(44.dp).pressable { onFill() },
+            contentAlignment = Alignment.Center,
+        ) { Icon(Icons.Rounded.NorthWest, null, tint = c.onSurfaceVariant, modifier = Modifier.size(20.dp)) }
     }
 }

@@ -129,7 +129,7 @@ class MainActivity : ComponentActivity() {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
         if (savedInstanceState == null) OpenRequest.from(intent)
-        setContent { PlazaTheme { PlazaApp(); RegionPrompt() } }
+        setContent { PlazaTheme { PlazaApp(); RegionPrompt(); LaunchSplash() } }
     }
 
     override fun onNewIntent(intent: android.content.Intent) {

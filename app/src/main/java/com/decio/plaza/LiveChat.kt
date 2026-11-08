@@ -11,9 +11,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.key
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -25,7 +26,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -205,8 +205,6 @@ fun LiveChatCard(videoId: String) {
         chat.start(videoId)
         onDispose { chat.stop() }
     }
-    val list = rememberLazyListState()
-    LaunchedEffect(chat.messages.size) { if (chat.messages.isNotEmpty()) list.scrollToItem(chat.messages.lastIndex) }
     var text by remember(videoId) { mutableStateOf("") }
     var sendError by remember(videoId) { mutableStateOf<String?>(null) }
     var sending by remember(videoId) { mutableStateOf(false) }
@@ -216,25 +214,29 @@ fun LiveChatCard(videoId: String) {
     ) {
         Text("Chat langsung", fontWeight = FontWeight.ExtraBold, fontSize = 15.sp)
         Spacer(Modifier.height(10.dp))
-        Box(Modifier.fillMaxWidth().height(300.dp)) {
+        // Tanpa daftar bersarang di dalam daftar halaman: pesan terbaru saja (12 terakhir), menempel
+        // di bawah; pesan lama terdorong ke atas dan terpotong halus.
+        Box(Modifier.fillMaxWidth().height(300.dp).clipToBounds()) {
             when {
-                chat.messages.isEmpty() && chat.status == null -> Box(Modifier.fillMaxWidth().height(300.dp), Alignment.Center) {
+                chat.messages.isEmpty() && chat.status == null -> Box(Modifier.fillMaxSize(), Alignment.Center) {
                     CircularProgressIndicator(color = c.primary, strokeWidth = 3.dp, modifier = Modifier.size(24.dp))
                 }
                 chat.messages.isEmpty() -> Text(chat.status.orEmpty(), color = c.onSurfaceVariant, fontSize = 13.5.sp)
-                else -> LazyColumn(state = list) {
-                    items(chat.messages, key = { it.id }) { m ->
-                        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.Top) {
-                            ChannelAvatar(m.avatar, m.author, size = 24)
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                buildAnnotatedString {
-                                    withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = c.onSurfaceVariant)) { append(m.author + "  ") }
-                                    m.amount?.let { withStyle(SpanStyle(fontWeight = FontWeight.ExtraBold, color = c.primary)) { append("$it  ") } }
-                                    append(m.text)
-                                },
-                                fontSize = 13.5.sp, lineHeight = 18.sp,
-                            )
+                else -> Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Bottom) {
+                    chat.messages.takeLast(12).forEach { m ->
+                        key(m.id) {
+                            Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.Top) {
+                                ChannelAvatar(m.avatar, m.author, size = 24)
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    buildAnnotatedString {
+                                        withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = c.onSurfaceVariant)) { append(m.author + "  ") }
+                                        m.amount?.let { withStyle(SpanStyle(fontWeight = FontWeight.ExtraBold, color = c.primary)) { append("$it  ") } }
+                                        append(m.text)
+                                    },
+                                    fontSize = 13.5.sp, lineHeight = 18.sp,
+                                )
+                            }
                         }
                     }
                 }
