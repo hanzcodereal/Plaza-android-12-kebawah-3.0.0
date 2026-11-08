@@ -216,7 +216,7 @@ fun LiveChatCard(videoId: String) {
         Spacer(Modifier.height(10.dp))
         // Tanpa daftar bersarang di dalam daftar halaman: pesan terbaru saja (12 terakhir), menempel
         // di bawah; pesan lama terdorong ke atas dan terpotong halus.
-        Box(Modifier.fillMaxWidth().height(300.dp).clipToBounds()) {
+        Box(Modifier.fillMaxWidth().then(if (chat.messages.isEmpty() && chat.status != null) Modifier else Modifier.height(300.dp)).clipToBounds()) {
             when {
                 chat.messages.isEmpty() && chat.status == null -> Box(Modifier.fillMaxSize(), Alignment.Center) {
                     CircularProgressIndicator(color = c.primary, strokeWidth = 3.dp, modifier = Modifier.size(24.dp))

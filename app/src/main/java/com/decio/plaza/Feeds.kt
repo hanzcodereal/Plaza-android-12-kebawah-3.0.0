@@ -116,6 +116,22 @@ class FeedState(
         }
     }
 
+    /**
+     * Memuat ulang diam-diam (dipakai Riwayat): tanpa spinner dan tanpa loncat ke atas. Halaman
+     * pertama diganti kalau isinya berbeda; halaman-halaman lama yang sudah dimuat tetap ada.
+     */
+    fun refreshQuietly() {
+        if (!loaded || loading) return
+        scope.launch {
+            runCatching { loader(null) }.onSuccess { page ->
+                if (page.videos.isEmpty()) return@onSuccess
+                if (page.videos.map { it.id } == videos.take(page.videos.size).map { it.id }) return@onSuccess
+                val seen = page.videos.mapTo(HashSet()) { it.id }
+                videos = page.videos + videos.filter { it.id !in seen }
+            }
+        }
+    }
+
     fun loadMore() {
         val token = next ?: return
         if (loading) return

@@ -218,6 +218,8 @@ fun LibraryScreen(
     LaunchedEffect(signedIn) {
         if (signedIn) {
             lib.history.ensureLoaded()
+            // Tontonan terbaru ikut masuk begitu Perpustakaan dibuka; diam-diam, tanpa spinner dan tanpa loncat.
+            lib.history.refreshQuietly()
             if (lib.playlists.isEmpty()) lib.loadPlaylists()
         }
     }

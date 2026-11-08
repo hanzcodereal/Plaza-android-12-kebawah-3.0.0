@@ -86,6 +86,9 @@ import androidx.compose.ui.graphics.lerp as lerpColor
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -259,19 +262,23 @@ fun PlayerScreen(
                             details?.likes?.takeIf { it > 0 }?.let { "${formatCount(it)} ${tr("likes")}" },
                         ).joinDots()
                         val hasDescription = !details?.description.isNullOrBlank()
-                        Row(
+                        // Satu teks saja: "…more" menyambung di ujung baris statistik. Dulu keduanya berdampingan
+                        // di satu Row; statistik yang panjang (siaran langsung) menghabiskan lebar, sehingga
+                        // "…more" terpecah satu huruf per baris dan membuat ruang kosong setinggi itu.
+                        Text(
+                            buildAnnotatedString {
+                                append(stats)
+                                if (hasDescription) {
+                                    withStyle(SpanStyle(color = c.onSurface, fontWeight = FontWeight.ExtraBold)) {
+                                        append("  " + if (descriptionOpen) tr("less") else tr("…more"))
+                                    }
+                                }
+                            },
+                            color = c.onSurfaceVariant,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
                             modifier = if (hasDescription) Modifier.pressable(pressedScale = 0.98f) { descriptionOpen = !descriptionOpen } else Modifier,
-                        ) {
-                            Text(stats, color = c.onSurfaceVariant, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                            if (hasDescription) {
-                                Text(
-                                    if (descriptionOpen) "  " + tr("less") else "  " + tr("…more"),
-                                    color = c.onSurface,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                )
-                            }
-                        }
+                        )
                         if (descriptionOpen && details != null) {
                             Text(
                                 details.description,
