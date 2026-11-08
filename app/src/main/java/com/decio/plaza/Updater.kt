@@ -228,7 +228,7 @@ object AppUpdate {
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "App updates", NotificationManager.IMPORTANCE_DEFAULT))
         val open = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return
         val notification = NotificationCompat.Builder(context, CHANNEL)
-            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Plaza updated to ${BuildConfig.VERSION_NAME}")
             .setContentText("Tap to open")
             .setContentIntent(PendingIntent.getActivity(context, 0, open, PendingIntent.FLAG_IMMUTABLE))

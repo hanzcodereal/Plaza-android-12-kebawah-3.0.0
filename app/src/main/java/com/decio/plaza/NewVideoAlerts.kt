@@ -225,7 +225,7 @@ object NewVideoAlerts {
         )
         val text = if (live) tr("Live now") + ": " + title else title
         val builder = NotificationCompat.Builder(context, CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_media_play)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(author.ifBlank { "Plaza" })
             .setContentText(text)
             .setContentIntent(pending)
