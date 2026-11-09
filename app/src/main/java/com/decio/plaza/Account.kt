@@ -744,20 +744,28 @@ object InnerTube {
      * Returns the session for [pingWatchtime], or null if YouTube gave no tracking URLs.
      */
     fun startWatch(videoId: String): WatchSession? {
-        // Klien web dulu (dengan akun). Kalau YouTube tidak memberi alamat pencatatan (mis. pemeriksaan
-        // bot), coba klien iOS: alamatnya tetap dikirim dengan cookie akun, jadi masuk ke riwayat akun.
-        val web = runCatching { post("player", JSONObject().put("videoId", videoId)) }
-        var tracking = web.getOrNull()?.optJSONObject("playbackTracking")
-        var source = "web"
+        // Seperti browser: alamat pencatatan diambil dari halaman tonton yang dimuat dengan cookie akun,
+        // jadi terikat ke akun yang masuk. Kalau gagal, coba API pemutar web, lalu klien iOS.
+        val notes = ArrayList<String>()
+        var source = "halaman"
+        var tracking = pageTracking(videoId)
         if (tracking == null) {
-            tracking = iosTracking(videoId)
-            source = "iOS"
+            notes += "halaman: kosong"
+            val web = runCatching { post("player", JSONObject().put("videoId", videoId)) }
+            tracking = web.getOrNull()?.optJSONObject("playbackTracking")
+            source = "web"
+            if (tracking == null) {
+                notes += "web: " + (
+                    web.exceptionOrNull()?.message
+                        ?: web.getOrNull()?.optJSONObject("playabilityStatus")?.optString("status")?.ifBlank { null }
+                        ?: "kosong"
+                    )
+                tracking = iosTracking(videoId)
+                source = "iOS"
+            }
         }
         if (tracking == null) {
-            val why = web.exceptionOrNull()?.message
-                ?: web.getOrNull()?.optJSONObject("playabilityStatus")?.optString("status")?.ifBlank { null }
-                ?: "kosong"
-            WatchDiagnostics.report("Gagal: YouTube tidak memberi alamat pencatatan ($why)")
+            WatchDiagnostics.report("Gagal: YouTube tidak memberi alamat pencatatan (${notes.joinToString("; ")})")
             return null
         }
         val cpn = (1..16).map { CPN_ALPHABET[Random.nextInt(CPN_ALPHABET.length)] }.joinToString("")
@@ -772,11 +780,57 @@ object InnerTube {
                 )
             }.onSuccess { recorded = true }.onFailure { failure = it.message }
         }
+        val tried = if (notes.isEmpty()) "" else " · gagal dulu: ${notes.joinToString("; ")}"
         WatchDiagnostics.report(
-            if (recorded) "Tercatat ke akun ($source)" else "Gagal mengirim ke YouTube ($source): ${failure ?: "tidak ada alamat pencatatan"}",
+            if (recorded) "Tercatat ke akun ($source)$tried"
+            else "Gagal mengirim ke YouTube ($source): ${failure ?: "tidak ada alamat pencatatan"}$tried",
         )
         val watchtime = tracking.optJSONObject("videostatsWatchtimeUrl")?.optString("baseUrl")?.ifBlank { null } ?: return null
         return WatchSession(videoId, watchtime, cpn)
+    }
+
+    /** Alamat pencatatan dari halaman tonton youtube.com, dimuat dengan cookie akun (cara browser). */
+    private fun pageTracking(videoId: String): JSONObject? = runCatching {
+        val request = Request.Builder().url("https://www.youtube.com/watch?v=$videoId&hl=${LocaleSettings.language}")
+            .header("User-Agent", Net.USER_AGENT)
+            .header("Cookie", Account.cookieHeader())
+            .header("Accept-Language", "en-US,en;q=0.9")
+            .build()
+        Net.client.newCall(request).execute().use { r ->
+            Account.absorbSetCookies(r.headers("Set-Cookie"))
+            if (!r.isSuccessful) return@use null
+            val html = r.body?.string().orEmpty()
+            val key = "\"playbackTracking\":"
+            val at = html.indexOf(key)
+            if (at < 0) return@use null
+            val start = html.indexOf('{', at + key.length)
+            if (start < 0) null else JSONObject(balancedObject(html, start))
+        }
+    }.getOrNull()
+
+    /** Potongan objek JSON yang dimulai di [start]: sampai kurung kurawal penutupnya (mengabaikan isi teks). */
+    private fun balancedObject(text: String, start: Int): String {
+        var depth = 0
+        var inString = false
+        var escaped = false
+        var i = start
+        while (i < text.length) {
+            val ch = text[i]
+            if (inString) {
+                if (escaped) escaped = false
+                else if (ch == '\\') escaped = true
+                else if (ch == '"') inString = false
+            } else if (ch == '"') {
+                inString = true
+            } else if (ch == '{') {
+                depth++
+            } else if (ch == '}') {
+                depth--
+                if (depth == 0) return text.substring(start, i + 1)
+            }
+            i++
+        }
+        throw IllegalStateException("objek JSON tidak lengkap")
     }
 
     private fun iosTracking(videoId: String): JSONObject? {
@@ -993,7 +1047,13 @@ object InnerTube {
         val agePart = parts.firstOrNull { it.contains("ago") } ?: if (stats.size >= 2) stats[1] else stats.firstOrNull { it.contains("lalu") }
         val viewsPart = parts.firstOrNull { it.contains("view") } ?: if (stats.size >= 2) stats[0] else stats.firstOrNull { it != agePart }
         val avatar = meta.optJSONObject("image")?.collectStrings("url")?.firstOrNull()
-        val duration = o.optJSONObject("contentImage")?.collectStrings("text")?.firstOrNull { DURATION.matches(it) }
+        // Durasi ada di lencana gambar. Teksnya bisa berformat "12:34" atau (bahasa Indonesia) "12.34",
+        // dan kuncinya bisa berganti, jadi semua teks di gambar diperiksa.
+        val duration = o.optJSONObject("contentImage")?.let { img ->
+            val all = ArrayList<String>()
+            collectAllStrings(img, all)
+            all.firstOrNull { DURATION.matches(cleanClock(it)) }?.let(::cleanClock)
+        }
         return VideoItem(
             id = id,
             title = title,
@@ -1009,12 +1069,22 @@ object InnerTube {
         )
     }
 
-    private val DURATION = Regex("^\\d{1,2}(:\\d{2}){1,2}$")
+    private val DURATION = Regex("^\\d{1,2}([:.]\\d{2}){1,2}$")
+
+    private fun cleanClock(text: String): String = text.replace("\u200e", "").replace('\u00a0', ' ').trim()
+
+    private fun collectAllStrings(node: Any?, out: MutableList<String>) {
+        when (node) {
+            is String -> out += node
+            is JSONObject -> node.keys().forEach { collectAllStrings(node.opt(it), out) }
+            is JSONArray -> for (i in 0 until node.length()) collectAllStrings(node.opt(i), out)
+        }
+    }
 
     private fun parseDuration(text: String?): Long {
-        val t = text?.trim() ?: return 0
+        val t = cleanClock(text ?: return 0)
         if (!DURATION.matches(t)) return 0
-        return t.split(':').fold(0L) { acc, part -> acc * 60 + (part.toLongOrNull() ?: 0) }
+        return t.split(':', '.').fold(0L) { acc, part -> acc * 60 + (part.toLongOrNull() ?: 0) }
     }
 
     private val VIEWS_NUMBER = Regex("(\\d[\\d.,]*)\\s*(rb|jt|ribu|juta|miliar|md|k|m|b)?(?![a-z])")
