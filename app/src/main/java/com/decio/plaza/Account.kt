@@ -269,6 +269,23 @@ object InnerTube {
 
     suspend fun home(next: String? = null) = browse("FEwhat_to_watch", next)
 
+    /**
+     * Beranda akun; kalau kosong (akun baru yang belum punya riwayat tontonan), pakai beranda umum
+     * YouTube, lalu pencarian populer, supaya layar tidak kosong. Halaman cadangan tidak punya halaman lanjutan.
+     */
+    suspend fun homeOrFallback(next: String? = null): FeedPage {
+        val own = home(next)
+        if (next != null || own.videos.isNotEmpty()) return own
+        val general = runCatching {
+            withContext(Dispatchers.IO) { parseFeed(post("browse", JSONObject().put("browseId", "FEwhat_to_watch"), anonymous = true)) }
+        }.getOrNull()
+        if (general != null && general.videos.isNotEmpty()) return general.copy(next = null)
+        val popular = runCatching {
+            withContext(Dispatchers.IO) { parseFeed(post("search", JSONObject().put("query", "video populer hari ini"), anonymous = true)) }
+        }.getOrNull()
+        return popular?.takeIf { it.videos.isNotEmpty() }?.copy(next = null) ?: own
+    }
+
     /** Siaran langsung yang sedang berlangsung (pencarian dengan filter "Live"), tanpa perlu akun. */
     suspend fun liveNow(): List<VideoItem> = withContext(Dispatchers.IO) {
         parseFeed(postAny("search", JSONObject().put("query", "live").put("params", "EgJAAQ%3D%3D")))
@@ -727,13 +744,59 @@ object InnerTube {
      * Returns the session for [pingWatchtime], or null if YouTube gave no tracking URLs.
      */
     fun startWatch(videoId: String): WatchSession? {
-        val tracking = post("player", JSONObject().put("videoId", videoId)).optJSONObject("playbackTracking") ?: return null
-        val cpn = (1..16).map { CPN_ALPHABET[Random.nextInt(CPN_ALPHABET.length)] }.joinToString("")
-        tracking.optJSONObject("videostatsPlaybackUrl")?.optString("baseUrl")?.ifBlank { null }?.let { base ->
-            ping(base, "ver=2&cpn=$cpn")
+        // Klien web dulu (dengan akun). Kalau YouTube tidak memberi alamat pencatatan (mis. pemeriksaan
+        // bot), coba klien iOS: alamatnya tetap dikirim dengan cookie akun, jadi masuk ke riwayat akun.
+        val web = runCatching { post("player", JSONObject().put("videoId", videoId)) }
+        var tracking = web.getOrNull()?.optJSONObject("playbackTracking")
+        var source = "web"
+        if (tracking == null) {
+            tracking = iosTracking(videoId)
+            source = "iOS"
         }
+        if (tracking == null) {
+            val why = web.exceptionOrNull()?.message
+                ?: web.getOrNull()?.optJSONObject("playabilityStatus")?.optString("status")?.ifBlank { null }
+                ?: "kosong"
+            WatchDiagnostics.report("Gagal: YouTube tidak memberi alamat pencatatan ($why)")
+            return null
+        }
+        val cpn = (1..16).map { CPN_ALPHABET[Random.nextInt(CPN_ALPHABET.length)] }.joinToString("")
+        var recorded = false
+        var failure: String? = null
+        tracking.optJSONObject("videostatsPlaybackUrl")?.optString("baseUrl")?.ifBlank { null }?.let { base ->
+            runCatching {
+                ping(
+                    base,
+                    "ver=2&cpn=$cpn&cmt=0&el=detailpage&c=WEB&cver=${Account.clientVersion()}" +
+                        "&hl=${LocaleSettings.language}&cr=${LocaleSettings.country}",
+                )
+            }.onSuccess { recorded = true }.onFailure { failure = it.message }
+        }
+        WatchDiagnostics.report(
+            if (recorded) "Tercatat ke akun ($source)" else "Gagal mengirim ke YouTube ($source): ${failure ?: "tidak ada alamat pencatatan"}",
+        )
         val watchtime = tracking.optJSONObject("videostatsWatchtimeUrl")?.optString("baseUrl")?.ifBlank { null } ?: return null
         return WatchSession(videoId, watchtime, cpn)
+    }
+
+    private fun iosTracking(videoId: String): JSONObject? {
+        val client = JSONObject()
+            .put("clientName", "IOS").put("clientVersion", "20.10.4")
+            .put("deviceMake", "Apple").put("deviceModel", "iPhone16,2")
+            .put("osName", "iPhone").put("osVersion", "18.3.2.22D82")
+            .put("hl", LocaleSettings.language).put("gl", LocaleSettings.country)
+        val body = JSONObject().put("videoId", videoId).put("contentCheckOk", true).put("racyCheckOk", true)
+            .put("context", JSONObject().put("client", client))
+        val request = Request.Builder().url("${BASE}player?prettyPrint=false")
+            .post(body.toString().toRequestBody(JSON_TYPE))
+            .header("User-Agent", "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X;)")
+            .header("X-YouTube-Client-Name", "5").header("X-YouTube-Client-Version", "20.10.4")
+            .build()
+        return runCatching {
+            Net.client.newCall(request).execute().use { r ->
+                if (!r.isSuccessful) null else JSONObject(r.body?.string().orEmpty()).optJSONObject("playbackTracking")
+            }
+        }.getOrNull()
     }
 
     /**

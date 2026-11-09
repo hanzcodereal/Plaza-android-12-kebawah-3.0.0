@@ -184,6 +184,9 @@ fun AccountSheet(onSignIn: () -> Unit, onSignedOut: () -> Unit, onDismiss: () ->
                 Spacer(Modifier.height(12.dp))
                 Text(profile.name, fontFamily = RoundedHeavy, fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
                 profile.handle?.let { Text(it, color = c.onSurfaceVariant, fontSize = 14.sp) }
+                // Hasil pencatatan tontonan terakhir ke riwayat akun (untuk melacak kalau riwayat tidak bertambah).
+                Spacer(Modifier.height(10.dp))
+                Text("Status riwayat: " + WatchDiagnostics.last, color = c.onSurfaceVariant, fontSize = 12.sp, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(20.dp))
                 PillButton(tr("Sign out"), { Account.signOut(); onSignedOut(); onDismiss() }, Icons.AutoMirrored.Rounded.Logout)
             }

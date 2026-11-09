@@ -10,13 +10,18 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.remember
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,6 +75,29 @@ fun LaunchSplash() {
                 stringResource(R.string.app_name),
                 fontFamily = RoundedHeavy, fontWeight = FontWeight.ExtraBold, fontSize = 34.sp,
                 color = c.onSurface,
+            )
+        }
+        // Di bawah: versi aplikasi dalam kapsul kecil, lalu "by Hanz Dev Official" tepat di bawahnya.
+        val context = LocalContext.current
+        val version = remember {
+            runCatching { context.packageManager.getPackageInfo(context.packageName, 0).versionName }.getOrNull().orEmpty()
+        }
+        Column(
+            Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 40.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            if (version.isNotBlank()) {
+                Text(
+                    "Versi $version",
+                    color = c.onSurfaceVariant, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clip(RoundedCornerShape(50)).background(c.surfaceContainerHigh)
+                        .padding(horizontal = 14.dp, vertical = 6.dp),
+                )
+                Spacer(Modifier.height(10.dp))
+            }
+            Text(
+                "by Hanz Dev Official",
+                color = c.primary, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 0.6.sp,
             )
         }
     }

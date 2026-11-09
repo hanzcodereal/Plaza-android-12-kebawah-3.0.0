@@ -201,7 +201,7 @@ class FeedState(
 /** Everything the signed-in tabs show, kept above the tab switcher so it survives tab changes. */
 @Stable
 class LibraryData(scope: CoroutineScope) {
-    val home = FeedState(scope, prefetchTop = 2, freshOnRefresh = true, liveLoader = { InnerTube.liveNow() }) { InnerTube.home(it) }
+    val home = FeedState(scope, prefetchTop = 2, freshOnRefresh = true, liveLoader = { InnerTube.liveNow() }) { InnerTube.homeOrFallback(it) }
     /** Channel yang baru dihentikan langganannya; disaring dari feed dan daftar sampai YouTube menyusul. */
     private val unsubscribed = HashSet<String>()
     val subscriptions = FeedState(scope, prefetchTop = 2) { token ->
