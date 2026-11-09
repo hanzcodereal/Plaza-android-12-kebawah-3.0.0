@@ -29,6 +29,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -93,6 +94,9 @@ class FeedState(
     val hasMore get() = next != null
 
     fun ensureLoaded() { if (!loaded && !loading) refresh() }
+
+    /** Sudah pernah dimuat (berhasil atau gagal); dipakai untuk membedakan "belum mulai" dari "memang kosong". */
+    val isLoaded get() = loaded
 
     fun refresh() {
         loaded = true
@@ -214,6 +218,10 @@ class LibraryData(scope: CoroutineScope) {
         private set
     private val scope = scope
 
+    /** Naik tiap akun berganti (masuk/keluar); layar yang memuat daftar memuat ulang karenanya. */
+    var version by mutableIntStateOf(0)
+        private set
+
     fun loadChannels() = scope.launch {
         runCatching { InnerTube.channels() }.onSuccess { list -> channels = list.filterNot { it.id in unsubscribed } }
     }
@@ -238,6 +246,7 @@ class LibraryData(scope: CoroutineScope) {
         unsubscribed.clear()
         home.reset(); subscriptions.reset(); history.reset()
         channels = emptyList(); playlists = emptyList()
+        version++
     }
 }
 
@@ -274,6 +283,8 @@ fun FeedList(
     onOpenShort: (VideoItem) -> Unit = onOpen,
     /** Daftar ringkas (gambar kecil di kiri) seperti playlist di YouTube, bukan kartu selebar layar. */
     compact: Boolean = false,
+    /** Kalau diisi: daftar yang memang kosong menampilkan penjelasan ini dan tombol coba lagi, bukan layar kosong. */
+    emptyBody: String? = null,
 ) {
     val c = MaterialTheme.colorScheme
     val list = rememberScrollToTop(scrollToTop)
@@ -307,6 +318,14 @@ fun FeedList(
                     icon = Icons.Rounded.CloudOff,
                     title = tr("Couldn't load this"),
                     body = feed.error.orEmpty(),
+                    action = { PillButton(tr("Try again"), { feed.refresh() }) },
+                )
+            }
+            emptyBody != null && feed.isLoaded && !feed.loading && feed.error == null && feed.videos.isEmpty() && !feed.hasMore -> item {
+                EmptyState(
+                    icon = Icons.Rounded.VideoLibrary,
+                    title = tr("Nothing here yet"),
+                    body = emptyBody,
                     action = { PillButton(tr("Try again"), { feed.refresh() }) },
                 )
             }

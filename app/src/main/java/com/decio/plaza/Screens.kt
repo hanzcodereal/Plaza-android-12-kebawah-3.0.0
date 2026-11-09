@@ -94,13 +94,15 @@ fun HomeScreen(
     onOpenShort: (VideoItem) -> Unit = onOpen,
 ) {
     val signedIn = Account.signedIn
-    LaunchedEffect(signedIn) { if (signedIn) lib.home.ensureLoaded() }
+    // lib.version: setelah ganti akun, daftar dimuat ulang (reset terjadi setelah masuk selesai).
+    LaunchedEffect(signedIn, lib.version) { if (signedIn) lib.home.ensureLoaded() }
     CollapsingHeaderLayout(
         resetKey = scrollToTop to lib.home.generation,
         header = { ScreenHeader(title = "Plaza", brandMark = true) { UpdateAction(); AccountAction(onAccount) } },
     ) { top ->
         if (signedIn) {
-            FeedList(lib.home, contentPadding.withTop(top), onOpen, scrollToTop = scrollToTop, indicatorTop = top, showShorts = ShortsSetting.enabled, showLive = true, showPosts = true, onOpenShort = onOpenShort)
+            FeedList(lib.home, contentPadding.withTop(top), onOpen, scrollToTop = scrollToTop, indicatorTop = top, showShorts = ShortsSetting.enabled, showLive = true, showPosts = true, onOpenShort = onOpenShort,
+                emptyBody = tr("YouTube has no recommendations for this account yet. Watch a few videos, then try again."))
         } else {
             LazyColumn(contentPadding = contentPadding.withTop(top)) {
                 item {
@@ -134,7 +136,7 @@ fun SubscriptionsScreen(
     val signedIn = Account.signedIn
     val openChannel = LocalChannelOpener.current
     // Muat ulang tiap tab dibuka dan tiap langganan berubah, supaya yang sudah dihentikan tidak tersisa.
-    LaunchedEffect(signedIn, lib.subscriptionsVersion) {
+    LaunchedEffect(signedIn, lib.subscriptionsVersion, lib.version) {
         if (signedIn) {
             lib.subscriptions.ensureLoaded()
             lib.loadChannels()
@@ -215,7 +217,7 @@ fun LibraryScreen(
     scrollToTop: Int = 0,
 ) {
     val signedIn = Account.signedIn
-    LaunchedEffect(signedIn) {
+    LaunchedEffect(signedIn, lib.version) {
         if (signedIn) {
             lib.history.ensureLoaded()
             // Tontonan terbaru ikut masuk begitu Perpustakaan dibuka; diam-diam, tanpa spinner dan tanpa loncat.
