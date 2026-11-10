@@ -133,6 +133,13 @@ class ChannelState(val url: String, private val scope: CoroutineScope) {
         it.copy(channel = it.channel.ifBlank { d.name }, avatar = it.avatar ?: d.avatar, channelUrl = it.channelUrl ?: d.url)
     }
 
+    /** Memuat tab Live lebih awal (kalau channel punya) supaya foto profil bisa diberi tanda LIVE. */
+    fun preloadLive() {
+        val t = data["live"] ?: return
+        if (meta?.tabs?.containsKey("live") != true || t.videos.isNotEmpty() || t.loading) return
+        loadTab("live", false)
+    }
+
     private fun loadTab(kind: String, more: Boolean) {
         val d = details ?: return
         val t = data.getValue(kind)
@@ -205,6 +212,8 @@ fun ChannelScreen(
     val c = MaterialTheme.colorScheme
     val list = rememberLazyListState()
     var viewerAt by remember { mutableStateOf<Int?>(null) }
+    // Cek diam-diam apakah channel sedang siaran langsung (tab Live dimuat begitu daftar tab diketahui).
+    LaunchedEffect(state.meta) { state.preloadLive() }
     val cur = state.current
     val nearEnd by remember {
         derivedStateOf { (list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0) >= list.layoutInfo.totalItemsCount - 4 }
@@ -245,7 +254,11 @@ fun ChannelScreen(
                     }
                     Column(Modifier.padding(horizontal = 16.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            ChannelAvatar(d.avatar, d.name, size = 76)
+                            // Channel yang sedang siaran langsung: cincin merah + LIVE; ketuk untuk menonton.
+                            val liveNow = state.data["live"]?.videos?.firstOrNull { it.live }
+                            Box(Modifier.pressable(enabled = liveNow != null) { liveNow?.let(onOpen) }) {
+                                LiveAvatar(d.avatar, d.name, size = 76, live = liveNow != null)
+                            }
                             Spacer(Modifier.width(14.dp))
                             Column(Modifier.weight(1f)) {
                                 // Urutan: nama, @username, lalu pelanggan dan jumlah video.

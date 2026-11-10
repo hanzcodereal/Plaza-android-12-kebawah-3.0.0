@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -92,13 +93,21 @@ fun HomeScreen(
     onAccount: () -> Unit,
     scrollToTop: Int = 0,
     onOpenShort: (VideoItem) -> Unit = onOpen,
+    onNotifications: () -> Unit = {},
 ) {
     val signedIn = Account.signedIn
     // lib.version: setelah ganti akun, daftar dimuat ulang (reset terjadi setelah masuk selesai).
     LaunchedEffect(signedIn, lib.version) { if (signedIn) lib.home.ensureLoaded() }
     CollapsingHeaderLayout(
         resetKey = scrollToTop to lib.home.generation,
-        header = { ScreenHeader(title = "Plaza", brandMark = true) { UpdateAction(); AccountAction(onAccount) } },
+        header = {
+            ScreenHeader(title = "Plaza", brandMark = true) {
+                UpdateAction()
+                NotificationAction(onNotifications)
+                if (SearchPlacement.top) SearchAction(onSearch)
+                AccountAction(onAccount)
+            }
+        },
     ) { top ->
         if (signedIn) {
             FeedList(lib.home, contentPadding.withTop(top), onOpen, scrollToTop = scrollToTop, indicatorTop = top, showShorts = ShortsSetting.enabled, showLive = true, showPosts = true, onOpenShort = onOpenShort,
@@ -250,8 +259,13 @@ fun LibraryScreen(
             item(key = "historyTitle") { SectionTitle(tr("History")) }
             item(key = "history") {
                 val history = lib.history.videos
+                // Baris Riwayat: begitu ada tontonan terbaru (atau daftar dimuat ulang), langsung kembali ke
+                // awal supaya yang paling baru terlihat, tanpa perlu menggulir dulu.
+                val rowState = androidx.compose.foundation.lazy.rememberLazyListState()
+                LaunchedEffect(history.firstOrNull()?.id, lib.history.generation) { rowState.scrollToItem(0) }
                 when {
                     history.isNotEmpty() -> LazyRow(
+                        state = rowState,
                         contentPadding = PaddingValues(horizontal = 16.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
@@ -286,6 +300,7 @@ fun LibraryScreen(
 @Composable
 private fun HistoryCard(video: VideoItem, onClick: () -> Unit) {
     val menu = LocalVideoMenu.current
+    val c = MaterialTheme.colorScheme
     Column(Modifier.width(168.dp).prefetchOnPress(video.id).pressable(pressedScale = 0.97f, onLongClick = { menu(video) }, onClick = onClick)) {
         Box {
             Thumbnail(video.thumbnail, Modifier.fillMaxWidth().aspectRatio(16f / 9f), radius = 20)
@@ -293,12 +308,20 @@ private fun HistoryCard(video: VideoItem, onClick: () -> Unit) {
             ResumeBar(video.id, Modifier.align(Alignment.BottomStart), fallback = video.watched)
         }
         Spacer(Modifier.height(7.dp))
-        Text(video.title, fontSize = 13.sp, fontWeight = FontWeight.Bold, lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        if (video.channel.isNotBlank()) {
-            Text(
-                video.channel, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp),
-            )
+        // Judul di kiri, titik tiga di kanan (seperti di YouTube).
+        Row(verticalAlignment = Alignment.Top) {
+            Column(Modifier.weight(1f)) {
+                Text(video.title, fontSize = 13.sp, fontWeight = FontWeight.Bold, lineHeight = 16.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (video.channel.isNotBlank()) {
+                    Text(
+                        video.channel, color = c.onSurfaceVariant, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp),
+                    )
+                }
+            }
+            Box(Modifier.size(32.dp).pressable { menu(video) }, contentAlignment = Alignment.Center) {
+                Icon(Icons.Rounded.MoreVert, tr("More options"), tint = c.onSurfaceVariant, modifier = Modifier.size(20.dp))
+            }
         }
     }
 }

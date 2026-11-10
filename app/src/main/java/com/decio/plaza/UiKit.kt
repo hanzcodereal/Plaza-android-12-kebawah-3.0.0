@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
@@ -252,6 +253,34 @@ fun ChannelAvatar(url: String?, name: String, size: Int = 40) {
     }
 }
 
+/**
+ * Foto profil channel yang sedang siaran langsung, seperti di YouTube: cincin merah di sekeliling foto
+ * dan lencana LIVE kecil di bawahnya. Kalau [live] false, foto biasa.
+ */
+@Composable
+fun LiveAvatar(url: String?, name: String, size: Int = 40, live: Boolean) {
+    if (!live) {
+        ChannelAvatar(url, name, size)
+        return
+    }
+    val c = MaterialTheme.colorScheme
+    val red = Color(0xFFE62117)
+    Box(Modifier.size(size.dp), contentAlignment = Alignment.Center) {
+        Box(
+            Modifier.matchParentSize().clip(CircleShape)
+                .background(Brush.linearGradient(listOf(red, Color(0xFFFF4E45)))),
+        )
+        Box(Modifier.size((size - 4).dp).clip(CircleShape).background(c.surface), contentAlignment = Alignment.Center) {
+            ChannelAvatar(url, name, (size - 8).coerceAtLeast(16))
+        }
+        Text(
+            "LIVE", color = Color.White, fontSize = (size * 0.21f).coerceAtLeast(7f).sp, fontWeight = FontWeight.ExtraBold,
+            modifier = Modifier.align(Alignment.BottomCenter).offset(y = (size * 0.12f).dp)
+                .clip(RoundedCornerShape(4.dp)).background(red).padding(horizontal = 4.dp, vertical = 0.5.dp),
+        )
+    }
+}
+
 /** Kartu feed gaya YouTube: gambar mini selebar layar, lalu foto profil + judul + keterangan + titik tiga. */
 @Composable
 fun VideoCard(video: VideoItem, onClick: () -> Unit, modifier: Modifier = Modifier) {
@@ -273,7 +302,7 @@ fun VideoCard(video: VideoItem, onClick: () -> Unit, modifier: Modifier = Modifi
         Row(modifier = Modifier.padding(start = 12.dp, end = 0.dp, top = 12.dp)) {
             val openChannel = LocalChannelOpener.current
             Box(Modifier.pressable(enabled = video.channelUrl != null) { video.channelUrl?.let(openChannel) }) {
-                ChannelAvatar(video.avatar, video.channel)
+                LiveAvatar(video.avatar, video.channel, live = video.live)
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {

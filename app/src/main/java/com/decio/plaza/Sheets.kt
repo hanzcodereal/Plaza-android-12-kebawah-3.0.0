@@ -602,4 +602,19 @@ fun AppearanceSettings() {
             }
         }
     }
+        Spacer(Modifier.height(18.dp))
+        Text(tr("Search button"), fontFamily = RoundedHeavy, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(false to tr("Navigation"), true to tr("Top")).forEach { (onTop, label) ->
+                val on = SearchPlacement.top == onTop
+                Box(
+                    Modifier
+                        .pressable { SearchPlacement.set(onTop) }
+                        .clip(RoundedCornerShape(if (on) 18.dp else 10.dp))
+                        .background(if (on) c.secondaryContainer else c.surfaceContainerHighest)
+                        .padding(horizontal = 16.dp, vertical = 9.dp),
+                ) { Text(label, color = if (on) c.onSecondaryContainer else c.onSurfaceVariant, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, softWrap = false) }
+            }
+        }
 }

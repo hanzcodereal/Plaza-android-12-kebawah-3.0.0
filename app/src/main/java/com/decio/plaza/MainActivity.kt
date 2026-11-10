@@ -122,6 +122,7 @@ class MainActivity : ComponentActivity() {
         current?.get()?.takeIf { it !== this && !it.isFinishing }?.finishAndRemoveTask()
         current = WeakReference(this)
         enableEdgeToEdge()
+        SearchPlacement.init(this)
         // The media notification (and its lock-screen controls) needs this on Android 13+.
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -192,6 +193,7 @@ fun PlazaApp() {
     var accountSheet by remember { mutableStateOf(false) }
     var openPlaylist by remember { mutableStateOf<PlaylistRef?>(null) }
     var openChannel by remember { mutableStateOf<String?>(null) }
+    var showNotifications by remember { mutableStateOf(false) }
     // Kept after closing so the page can slide out with its content.
     var channelState by remember { mutableStateOf<ChannelState?>(null) }
     val playlistFeed = remember(openPlaylist?.id) { openPlaylist?.let { lib.playlistFeed(it.id) } }
@@ -204,7 +206,7 @@ fun PlazaApp() {
     // Short dari beranda / halaman channel: langsung ke halaman Shorts, mulai dari short itu.
     val openShort: (VideoItem) -> Unit = { v ->
         if (tab != Tab.Shorts) shortsFrom = tab
-        openPlaylist = null; openChannel = null
+        openPlaylist = null; openChannel = null; showNotifications = false
         shorts.startWith(v)
         tab = Tab.Shorts
     }
@@ -280,6 +282,7 @@ fun PlazaApp() {
     BackHandler(enabled = !player.expanded && openPlaylist != null) { openPlaylist = null }
     BackHandler(enabled = signingIn) { signingIn = false }
     BackHandler(enabled = !player.expanded && openChannel != null) { openChannel = null }
+    BackHandler(enabled = !player.expanded && showNotifications) { showNotifications = false }
     BackHandler(enabled = tab == Tab.Shorts && shorts.commentsOpen) { shorts.commentsOpen = false }
     // Registered last so it wins: in fullscreen, Back returns to the portrait player first.
     BackHandler(enabled = showFullscreen) { orientation.exitFullscreen() }
@@ -407,6 +410,7 @@ fun PlazaApp() {
                     onSignIn = { signingIn = true }, onAccount = { accountSheet = true },
                     scrollToTop = scrollToTop[Tab.Home] ?: 0,
                     onOpenShort = openShort,
+                    onNotifications = { showNotifications = true },
                 )
                 Tab.Subscriptions -> SubscriptionsScreen(
                     lib, contentPadding, onOpen = player::open,
@@ -452,6 +456,19 @@ fun PlazaApp() {
                     onOpenShort = openShort,
                 )
             }
+        }
+
+        // Notifikasi membuka halaman di atas tab (masuk dari kanan).
+        AnimatedVisibility(
+            visible = showNotifications,
+            enter = if (reduced) fadeIn(snap()) else slideInHorizontally(tween(340, easing = Motion.Emphasized)) { it } + fadeIn(tween(120)),
+            exit = if (reduced) fadeOut(snap()) else slideOutHorizontally(tween(300, easing = Motion.Emphasized)) { it } + fadeOut(tween(220)),
+        ) {
+            NotificationsScreen(
+                contentPadding,
+                onBack = { showNotifications = false },
+                onOpen = { v -> showNotifications = false; player.open(v) },
+            )
         }
 
         // Ledgii's bottom vignette: the page color fades in over the last 130 dp (plus the
@@ -566,7 +583,7 @@ fun PlazaApp() {
                     selected == tab -> scrollToTop[selected] = (scrollToTop[selected] ?: 0) + 1
                     else -> {
                         if (selected == Tab.Shorts) shortsFrom = tab
-                        openPlaylist = null; openChannel = null; tab = selected
+                        openPlaylist = null; openChannel = null; showNotifications = false; tab = selected
                     }
                 }
             },
