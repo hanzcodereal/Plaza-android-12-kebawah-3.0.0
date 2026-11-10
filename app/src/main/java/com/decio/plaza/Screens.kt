@@ -289,7 +289,7 @@ private fun HistoryCard(video: VideoItem, onClick: () -> Unit) {
     Column(Modifier.width(168.dp).prefetchOnPress(video.id).pressable(pressedScale = 0.97f, onLongClick = { menu(video) }, onClick = onClick)) {
         Box {
             Thumbnail(video.thumbnail, Modifier.fillMaxWidth().aspectRatio(16f / 9f), radius = 20)
-            DurationPill(video.durationSec, Modifier.align(Alignment.BottomEnd).padding(6.dp), small = true)
+            DurationPill(video.durationSec, Modifier.align(Alignment.BottomEnd).padding(6.dp), small = true, live = video.live)
             ResumeBar(video.id, Modifier.align(Alignment.BottomStart), fallback = video.watched)
         }
         Spacer(Modifier.height(7.dp))
