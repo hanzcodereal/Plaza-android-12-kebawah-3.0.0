@@ -43,6 +43,8 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.WatchLater
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -115,6 +117,14 @@ fun VideoOptionsSheet(video: VideoItem, player: PlayerState, onDismiss: () -> Un
         if (Account.signedIn) {
             OptionRow(Icons.Rounded.WatchLater, tr("Save to Watch later")) { player.saveToWatchLater(video); onDismiss() }
             OptionRow(Icons.Rounded.LibraryAdd, tr("Save to playlist")) { onDismiss(); player.openPlaylists(video) }
+        }
+        if (!video.live) {
+            val saved = Downloads.items.firstOrNull { it.id == video.id }
+            if (saved == null || saved.state == DownloadState.Failed) {
+                OptionRow(Icons.Rounded.Download, tr("Download")) { Downloads.start(context, video); onDismiss() }
+            } else {
+                OptionRow(Icons.Rounded.Delete, tr("Remove download")) { Downloads.remove(context, video.id); onDismiss() }
+            }
         }
         OptionRow(Icons.Rounded.Share, tr("Share")) {
             shareLink(context, "https://youtu.be/${video.id}", video.title)
@@ -502,11 +512,47 @@ private fun CategoryRow(category: SponsorBlock.Category) {
 @Composable
 fun ShortsSettings() {
     val context = LocalContext.current
-    SettingSwitchRow(
-        "Shorts",
-        if (ShortsSetting.enabled) tr("Show the Shorts tab") else tr("The Shorts tab is hidden and no Shorts are loaded"),
-        ShortsSetting.enabled,
-    ) { ShortsSetting.set(context, it) }
+    Column(Modifier.fillMaxWidth()) {
+        SettingSwitchRow(
+            "Shorts",
+            if (ShortsSetting.enabled) tr("Show the Shorts tab") else tr("The Shorts tab is hidden and no Shorts are loaded"),
+            ShortsSetting.enabled,
+        ) { ShortsSetting.set(context, it) }
+        if (ShortsSetting.enabled) {
+            Spacer(Modifier.height(14.dp))
+            SettingSwitchRow(
+                tr("Full-screen Shorts"),
+                if (ShortsLayout.fullscreen) tr("Video fills the whole screen") else tr("Video sits in a card, the navigation stays visible"),
+                ShortsLayout.fullscreen,
+            ) { ShortsLayout.set(context, it) }
+        }
+    }
+}
+
+/** Pilihan posisi tombol pencarian: di navigasi bawah (bawaan) atau di atas Beranda. Kartu sendiri di bawah Shorts. */
+@Composable
+fun SearchButtonSettings() {
+    val c = MaterialTheme.colorScheme
+    Column(Modifier.fillMaxWidth()) {
+        Text(tr("Search button"), fontFamily = RoundedHeavy, fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+        Text(
+            if (SearchPlacement.top) tr("Search is an icon at the top of Home") else tr("Search is a tab in the navigation"),
+            color = c.onSurfaceVariant, fontSize = 13.sp,
+        )
+        Spacer(Modifier.height(10.dp))
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(false to tr("Navigation"), true to tr("Top")).forEach { (onTop, label) ->
+                val on = SearchPlacement.top == onTop
+                Box(
+                    Modifier
+                        .pressable { SearchPlacement.set(onTop) }
+                        .clip(RoundedCornerShape(if (on) 18.dp else 10.dp))
+                        .background(if (on) c.secondaryContainer else c.surfaceContainerHighest)
+                        .padding(horizontal = 16.dp, vertical = 9.dp),
+                ) { Text(label, color = if (on) c.onSecondaryContainer else c.onSurfaceVariant, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, softWrap = false) }
+            }
+        }
+    }
 }
 
 /**
@@ -572,7 +618,7 @@ fun AppearanceSettings() {
                 val selected = ThemeSettings.seed?.lowercase() == hex?.lowercase()
                 val scheme = themedScheme(context, hex, dark)
                 Column(
-                    Modifier.width(78.dp).pressable { ThemeSettings.choose(hex) },
+                    Modifier.width(78.dp).pressable { ThemeSettings.choose(hex); AppIcon.apply(context, hex) },
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Box(
@@ -602,19 +648,4 @@ fun AppearanceSettings() {
             }
         }
     }
-        Spacer(Modifier.height(18.dp))
-        Text(tr("Search button"), fontFamily = RoundedHeavy, fontWeight = FontWeight.ExtraBold, fontSize = 16.sp)
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf(false to tr("Navigation"), true to tr("Top")).forEach { (onTop, label) ->
-                val on = SearchPlacement.top == onTop
-                Box(
-                    Modifier
-                        .pressable { SearchPlacement.set(onTop) }
-                        .clip(RoundedCornerShape(if (on) 18.dp else 10.dp))
-                        .background(if (on) c.secondaryContainer else c.surfaceContainerHighest)
-                        .padding(horizontal = 16.dp, vertical = 9.dp),
-                ) { Text(label, color = if (on) c.onSecondaryContainer else c.onSurfaceVariant, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1, softWrap = false) }
-            }
-        }
 }

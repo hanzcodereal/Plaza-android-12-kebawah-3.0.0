@@ -177,6 +177,21 @@ class PlaybackService : MediaSessionService() {
             mediaItems: MutableList<MediaItem>,
         ): ListenableFuture<MutableList<MediaItem>> = resolver.submit<MutableList<MediaItem>> {
             mediaItems.map { item ->
+                // Offline dan videonya sudah diunduh: tidak perlu internet, metadata dari unduhan.
+                val offline = Downloads.local(item.mediaId)?.takeIf { Downloads.isOffline() }
+                if (offline != null) {
+                    return@map item.buildUpon()
+                        .setUri(YouTube.watchUrl(item.mediaId))
+                        .setMediaMetadata(
+                            item.mediaMetadata.buildUpon()
+                                .setTitle(item.mediaMetadata.title ?: offline.title)
+                                .setArtist(item.mediaMetadata.artist ?: offline.channel)
+                                .setDurationMs(item.mediaMetadata.durationMs ?: offline.durationSec.takeIf { it > 0 }?.times(1000))
+                                .setMediaType(MediaMetadata.MEDIA_TYPE_VIDEO)
+                                .build(),
+                        )
+                        .build()
+                }
                 // An opened video is already loaded (the player waited for it); this resolves
                 // restored and queued items, which nobody is waiting for yet.
                 val info = BotCheck.withoutWaiting(item.mediaId) { StreamCache.getOrLoad(item.mediaId) }
@@ -532,6 +547,8 @@ private class SponsorSkipper(private val player: ExoPlayer) : Player.Listener {
  */
 @OptIn(UnstableApi::class)
 internal class YouTubeMediaSourceFactory(context: Context) : MediaSource.Factory {
+    init { Downloads.init(context) }
+
     private val dataSourceFactory: DataSource.Factory = DefaultDataSource.Factory(
         context,
         OkHttpDataSource.Factory(Net.client).setUserAgent(Net.USER_AGENT),
@@ -546,7 +563,21 @@ internal class YouTubeMediaSourceFactory(context: Context) : MediaSource.Factory
 
     override fun getSupportedTypes(): IntArray = fallback.supportedTypes
 
+    /** Video yang sudah diunduh, diputar dari berkasnya (video + audio digabung). */
+    private fun localSource(download: DownloadItem, mediaItem: MediaItem): MediaSource? {
+        val videoPath = download.videoPath ?: return null
+        val factory = ProgressiveMediaSource.Factory(dataSourceFactory)
+        val video = factory.createMediaSource(mediaItem.buildUpon().setUri(Uri.fromFile(java.io.File(videoPath))).build())
+        val audioPath = download.audioPath ?: return video
+        val audio = factory.createMediaSource(mediaItem.buildUpon().setUri(Uri.fromFile(java.io.File(audioPath))).build())
+        return MergingMediaSource(true, true, video, audio)
+    }
+
     override fun createMediaSource(mediaItem: MediaItem): MediaSource {
+        // Offline (atau tidak ada tautan yang termuat) dan videonya sudah diunduh: putar dari berkas.
+        Downloads.local(mediaItem.mediaId)
+            ?.takeIf { Downloads.isOffline() || StreamCache.get(mediaItem.mediaId) == null }
+            ?.let { download -> localSource(download, mediaItem)?.let { return it } }
         val info = StreamCache.get(mediaItem.mediaId) ?: return fallback.createMediaSource(mediaItem)
         // Siaran langsung: satu daftar putar HLS (video + audio sudah digabung).
         StreamSelection.liveHls(info)?.let { hls ->

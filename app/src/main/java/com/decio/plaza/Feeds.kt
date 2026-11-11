@@ -29,6 +29,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CloudOff
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -285,6 +286,8 @@ fun FeedList(
     compact: Boolean = false,
     /** Kalau diisi: daftar yang memang kosong menampilkan penjelasan ini dan tombol coba lagi, bukan layar kosong. */
     emptyBody: String? = null,
+    /** Layar galat (mis. offline) menawarkan tombol ke Unduhan kalau sudah ada video yang diunduh. */
+    onDownloads: (() -> Unit)? = null,
 ) {
     val c = MaterialTheme.colorScheme
     val list = rememberScrollToTop(scrollToTop)
@@ -318,7 +321,16 @@ fun FeedList(
                     icon = Icons.Rounded.CloudOff,
                     title = tr("Couldn't load this"),
                     body = feed.error.orEmpty(),
-                    action = { PillButton(tr("Try again"), { feed.refresh() }) },
+                    action = {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            PillButton(tr("Try again"), { feed.refresh() })
+                            // Offline: video yang sudah diunduh tetap bisa ditonton.
+                            if (onDownloads != null && Downloads.items.any { it.state == DownloadState.Done }) {
+                                Spacer(Modifier.height(10.dp))
+                                PillButton(tr("Downloads"), onDownloads, Icons.Rounded.Download)
+                            }
+                        }
+                    },
                 )
             }
             emptyBody != null && feed.isLoaded && !feed.loading && feed.error == null && feed.videos.isEmpty() && !feed.hasMore -> item {

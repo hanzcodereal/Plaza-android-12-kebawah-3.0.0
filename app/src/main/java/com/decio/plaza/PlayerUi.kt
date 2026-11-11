@@ -46,6 +46,8 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.material.icons.rounded.LibraryAdd
 import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.DownloadDone
 import androidx.compose.material.icons.rounded.ThumbDown
 import androidx.compose.material.icons.rounded.ThumbUp
 import androidx.compose.material.icons.rounded.WatchLater
@@ -567,6 +569,34 @@ private fun PlayerActions(state: PlayerState) {
         if (state.accountState != null) AccountActions(state)
         val context = LocalContext.current
         val item = state.current
+        // Unduh untuk ditonton tanpa internet (seperti YouTube): ketuk = mulai; saat berjalan = batalkan.
+        if (item != null && !item.live) {
+            val download = Downloads.items.firstOrNull { it.id == item.id }
+            val done = download?.state == DownloadState.Done
+            val busy = download != null && (download.state == DownloadState.Queued || download.state == DownloadState.Downloading)
+            ActionPill(
+                icon = if (done) Icons.Rounded.DownloadDone else Icons.Rounded.Download,
+                label = when {
+                    done -> tr("Downloaded")
+                    busy -> if (download?.state == DownloadState.Queued) tr("Waiting…") else "${((download?.progress ?: 0f) * 100).toInt()}%"
+                    download?.state == DownloadState.Failed -> tr("Retry")
+                    else -> tr("Download")
+                },
+                active = done,
+                flourish = null,
+                shape = RoundedCornerShape(22.dp),
+                description = tr("Download"),
+            ) {
+                when {
+                    done -> android.widget.Toast.makeText(context, tr("Already downloaded. Remove it in Library › Downloads."), android.widget.Toast.LENGTH_SHORT).show()
+                    busy -> Downloads.remove(context, item.id)
+                    else -> {
+                        Downloads.start(context, item)
+                        android.widget.Toast.makeText(context, tr("Downloading…"), android.widget.Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
         ActionPill(
             icon = Icons.Rounded.Share,
             label = tr("Share"),

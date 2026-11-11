@@ -94,6 +94,7 @@ fun HomeScreen(
     scrollToTop: Int = 0,
     onOpenShort: (VideoItem) -> Unit = onOpen,
     onNotifications: () -> Unit = {},
+    onOpenDownloads: (() -> Unit)? = null,
 ) {
     val signedIn = Account.signedIn
     // lib.version: setelah ganti akun, daftar dimuat ulang (reset terjadi setelah masuk selesai).
@@ -110,7 +111,7 @@ fun HomeScreen(
         },
     ) { top ->
         if (signedIn) {
-            FeedList(lib.home, contentPadding.withTop(top), onOpen, scrollToTop = scrollToTop, indicatorTop = top, showShorts = ShortsSetting.enabled, showLive = true, showPosts = true, onOpenShort = onOpenShort,
+            FeedList(lib.home, contentPadding.withTop(top), onOpen, scrollToTop = scrollToTop, indicatorTop = top, showShorts = ShortsSetting.enabled, showLive = true, showPosts = true, onOpenShort = onOpenShort, onDownloads = onOpenDownloads,
                 emptyBody = tr("YouTube has no recommendations for this account yet. Watch a few videos, then try again."))
         } else {
             LazyColumn(contentPadding = contentPadding.withTop(top)) {
@@ -224,6 +225,7 @@ fun LibraryScreen(
     onSignIn: () -> Unit,
     onAccount: () -> Unit,
     scrollToTop: Int = 0,
+    onOpenDownloads: () -> Unit = {},
 ) {
     val signedIn = Account.signedIn
     LaunchedEffect(signedIn, lib.version) {
@@ -245,6 +247,8 @@ fun LibraryScreen(
             topPadding = top,
         ) {
         LazyColumn(state = rememberScrollToTop(scrollToTop), contentPadding = contentPadding.withTop(top)) {
+            // Unduhan selalu ada (juga sebelum masuk dan saat offline).
+            item(key = "downloadsTile") { DownloadsTile(onOpenDownloads) }
             if (!signedIn) {
                 item {
                     EmptyState(

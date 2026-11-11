@@ -123,6 +123,10 @@ class MainActivity : ComponentActivity() {
         current = WeakReference(this)
         enableEdgeToEdge()
         SearchPlacement.init(this)
+        ShortsLayout.init(this)
+        Downloads.init(this)
+        // Ikon aplikasi di layar utama mengikuti tema yang dipilih.
+        AppIcon.apply(this, ThemeSettings.seed)
         // The media notification (and its lock-screen controls) needs this on Android 13+.
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -194,6 +198,7 @@ fun PlazaApp() {
     var openPlaylist by remember { mutableStateOf<PlaylistRef?>(null) }
     var openChannel by remember { mutableStateOf<String?>(null) }
     var showNotifications by remember { mutableStateOf(false) }
+    var showDownloads by remember { mutableStateOf(false) }
     // Kept after closing so the page can slide out with its content.
     var channelState by remember { mutableStateOf<ChannelState?>(null) }
     val playlistFeed = remember(openPlaylist?.id) { openPlaylist?.let { lib.playlistFeed(it.id) } }
@@ -283,6 +288,7 @@ fun PlazaApp() {
     BackHandler(enabled = signingIn) { signingIn = false }
     BackHandler(enabled = !player.expanded && openChannel != null) { openChannel = null }
     BackHandler(enabled = !player.expanded && showNotifications) { showNotifications = false }
+    BackHandler(enabled = !player.expanded && showDownloads) { showDownloads = false }
     BackHandler(enabled = tab == Tab.Shorts && shorts.commentsOpen) { shorts.commentsOpen = false }
     // Registered last so it wins: in fullscreen, Back returns to the portrait player first.
     BackHandler(enabled = showFullscreen) { orientation.exitFullscreen() }
@@ -411,6 +417,7 @@ fun PlazaApp() {
                     scrollToTop = scrollToTop[Tab.Home] ?: 0,
                     onOpenShort = openShort,
                     onNotifications = { showNotifications = true },
+                    onOpenDownloads = { showDownloads = true },
                 )
                 Tab.Subscriptions -> SubscriptionsScreen(
                     lib, contentPadding, onOpen = player::open,
@@ -423,6 +430,7 @@ fun PlazaApp() {
                     lib, contentPadding, onOpen = player::open, onOpenPlaylist = { openPlaylist = it },
                     onSignIn = { signingIn = true }, onAccount = { accountSheet = true },
                     scrollToTop = scrollToTop[Tab.Library] ?: 0,
+                    onOpenDownloads = { showDownloads = true },
                 )
             }
         }
@@ -456,6 +464,19 @@ fun PlazaApp() {
                     onOpenShort = openShort,
                 )
             }
+        }
+
+        // Unduhan: halaman di atas tab (masuk dari kanan); video yang diunduh bisa ditonton tanpa internet.
+        AnimatedVisibility(
+            visible = showDownloads,
+            enter = if (reduced) fadeIn(snap()) else slideInHorizontally(tween(340, easing = Motion.Emphasized)) { it } + fadeIn(tween(120)),
+            exit = if (reduced) fadeOut(snap()) else slideOutHorizontally(tween(300, easing = Motion.Emphasized)) { it } + fadeOut(tween(220)),
+        ) {
+            DownloadsScreen(
+                contentPadding,
+                onBack = { showDownloads = false },
+                onOpen = { v -> showDownloads = false; player.open(v) },
+            )
         }
 
         // Notifikasi membuka halaman di atas tab (masuk dari kanan).
@@ -583,7 +604,7 @@ fun PlazaApp() {
                     selected == tab -> scrollToTop[selected] = (scrollToTop[selected] ?: 0) + 1
                     else -> {
                         if (selected == Tab.Shorts) shortsFrom = tab
-                        openPlaylist = null; openChannel = null; showNotifications = false; tab = selected
+                        openPlaylist = null; openChannel = null; showNotifications = false; showDownloads = false; tab = selected
                     }
                 }
             },

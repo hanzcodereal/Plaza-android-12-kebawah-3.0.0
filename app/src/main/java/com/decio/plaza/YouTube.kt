@@ -183,6 +183,8 @@ object YouTube {
      * would rather move on than hold a short on a spinner for up to half a minute.
      */
     suspend fun details(id: String, wait: Boolean = true): VideoDetails = withContext(Dispatchers.IO) {
+        // Offline dan videonya sudah diunduh: rincian dari unduhan, tanpa internet.
+        Downloads.offlineDetails(id)?.let { return@withContext it }
         val info = if (wait) BotCheck.retrying(id) { StreamCache.getOrLoad(id) } else BotCheck.withoutWaiting(id) { StreamCache.getOrLoad(id) }
         val picked = StreamSelection.pick(info)
         VideoDetails(

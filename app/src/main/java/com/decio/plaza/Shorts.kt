@@ -24,6 +24,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.VerticalPager
@@ -201,6 +204,31 @@ object ShortsSetting {
         enabled = on
         prefs?.edit()?.putBoolean(KEY, on)?.apply()
         if (!on) (context.applicationContext as PlazaApplication).shorts.turnOff()
+    }
+}
+
+/**
+ * Tampilan Shorts: layar penuh (bawaan; video sampai ke tepi layar, navigasi melayang di atasnya) atau
+ * dalam kartu bersudut membulat dengan margin, sehingga bilah navigasi tetap terlihat di bawahnya.
+ */
+object ShortsLayout {
+    private const val KEY = "shorts_fullscreen"
+    private var prefs: android.content.SharedPreferences? = null
+
+    var fullscreen by mutableStateOf(true)
+        private set
+
+    fun init(context: Context) {
+        if (prefs != null) return
+        val p = context.applicationContext.getSharedPreferences("playback", Context.MODE_PRIVATE)
+        prefs = p
+        fullscreen = p.getBoolean(KEY, true)
+    }
+
+    fun set(context: Context, on: Boolean) {
+        init(context)
+        fullscreen = on
+        prefs?.edit()?.putBoolean(KEY, on)?.apply()
     }
 }
 
@@ -1123,10 +1151,18 @@ private class CappedLoadControl(
  */
 @Composable
 fun ShortsScreen(shorts: ShortsState, progress: () -> Float, overlayBottom: Dp) {
+    val card = !ShortsLayout.fullscreen
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         Box(
             Modifier
                 .fillMaxSize()
+                // Mode kartu: video tidak sampai ke tepi layar; sudut membulat, ada margin, dan ruang untuk navigasi.
+                .then(
+                    if (card) Modifier.statusBarsPadding()
+                        .padding(start = 10.dp, end = 10.dp, top = 8.dp, bottom = overlayBottom + 6.dp)
+                        .clip(RoundedCornerShape(26.dp))
+                    else Modifier,
+                )
                 // The picture settles in as the bar turns to glass.
                 .graphicsLayer {
                     val s = lerpF(1.07f, 1f, decel(ramp(progress(), 0f, 0.8f)))
@@ -1135,7 +1171,7 @@ fun ShortsScreen(shorts: ShortsState, progress: () -> Float, overlayBottom: Dp) 
                 },
         ) {
             when {
-                shorts.items.isNotEmpty() -> key(shorts.feedVersion) { ShortsPager(shorts, overlayBottom) }
+                shorts.items.isNotEmpty() -> key(shorts.feedVersion) { ShortsPager(shorts, if (card) 0.dp else overlayBottom) }
                 shorts.error != null && !shorts.loading -> ShortsProblem(shorts.error.orEmpty(), onRetry = shorts::refresh)
                 else -> CircularProgressIndicator(color = Ink, strokeWidth = 3.dp, modifier = Modifier.align(Alignment.Center).size(36.dp))
             }
